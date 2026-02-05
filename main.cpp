@@ -3,9 +3,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <iostream>
+#include "src/class/VulkanStuff.h"
+#include "src/class/VulkanUtils.h"
 
 #define WINDOW_WIDTH 640
 #define WINDOW_HEIGHT 480
+#define APP_NAME "VULKAN"
 
 static void error_callback(int error, const char* description)
 {
@@ -35,21 +38,22 @@ int main(int argc, char** argv)
   
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-  glfwWindowHint(GLFW_FOCUSED, GLFW_TRUE);
-  window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "VULKAN", NULL, NULL); 
+  window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, APP_NAME, NULL, NULL); 
 
   if(!window) {
     glfwTerminate();
     exit(EXIT_FAILURE);
-    return 1;
   }
 
   glfwSetKeyCallback(window, key_callback);
-  glfwShowWindow(window);
+
+  vks::VulkanApp app;
+  app.Init(APP_NAME);
 
   std::cout<<"PROJETO COM VULKAN xD\n";
 
-  while(!glfwWindowShouldClose(window)) {  
+  while(!glfwWindowShouldClose(window)) {
+    app.RenderScene();
     glfwPollEvents();
   }
 
