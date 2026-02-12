@@ -2,7 +2,7 @@
 #include <iostream>
 #include <vector>
 #include <assert.h>
-
+#include <vulkan/vulkan.h>
 
 vks::VulkanApp::VulkanApp() {
   // Initialize member variables if needed
@@ -21,17 +21,20 @@ void vks::VulkanApp::Init(const char* appName) {
 } 
 
 void vks::VulkanApp::CreateInstance(const char* appName) {
-  std::vector<const char*> layers = {"VK_LAYER_KHRONOS_validation"};
+  std::vector<const char*> layers = {
+    "VK_LAYER_KHRONOS_validation",
+    "VK_LAYER_KHRONOS_profiles"
+  };
+  
   std::vector<const char*> extensions = {
     VK_KHR_SURFACE_EXTENSION_NAME,
 #ifdef _WIN32 
     "VK_KHR_win32_surface",
 #endif
 #ifdef __linux__
-    "VK_KHR_xbc_surface",
+    "VK_KHR_xcb_surface",
 #endif
     VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-    VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
   };
 
 	VkApplicationInfo appInfo = {
@@ -64,5 +67,5 @@ void vks::VulkanApp::CreateInstance(const char* appName) {
 }
 
 void vks::VulkanApp::RenderScene() {
-  std::cout<<"!";
+  //std::cout<<"!";
 }
