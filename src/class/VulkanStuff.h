@@ -11,6 +11,7 @@ namespace vks {
 
       void Init(const char* appName);
       void RenderScene();
+      Cleanup();
     private:
       void CreateInstance(const char* appName);
       VkInstance m_instance = NULL;
