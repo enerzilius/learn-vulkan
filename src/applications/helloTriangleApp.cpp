@@ -28,6 +28,9 @@ public:
     cleanup();
   }
 private:
+  vk::raii::Context context;
+  vk::raii::Instance instance = nullptr;
+
   void initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -37,8 +40,7 @@ private:
   }
 
   void initVulkan() {
-    vks::VulkanApp app;
-    app.Init("TESTE");
+    createInstance();
   }
 
   void mainLoop() {
@@ -50,6 +52,38 @@ private:
   void cleanup() {
     glfwDestroyWindow(window);
     glfwTerminate();
+  }
+
+  void createInstance() {
+    constexpr VkApplicationInfo appInfo = {
+      .pApplicationName   = APP_NAME,
+      .applicationVersion = VK_MAKE_VERSION( 1, 0, 0 ),
+      .pEngineName        = "Enengine", 
+      .engineVersion      = VK_MAKE_VERSION( 1, 0, 0 ),
+      .apiVersion         = vk::ApiVersion14
+    };
+
+    uint32_t glfwExtensionCount = 0;
+    auto glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+
+    auto extensionProperties = context.enumerateInstanceExtensionProperties();
+    for(size_t i = 0; i < glfwExtensionCount; ++i) {
+      if (std::ranges::none_of(extensionProperties,
+                             [glfwExtension = glfwExtensions[i]](auto const& extensionProperty)
+                             { return strcmp(extensionProperty.extensionName, glfwExtension) == 0; }))
+      {
+        throw std::runtime_error("Required GLFW extension not supported: " + std::string(glfwExtensions[i]));
+      }
+    }
+
+    VkInstanceCreateInfo createInfo {
+      .pApplicationInfo = &appInfo,
+      .enabledExtensionCount = glfwExtensionCount,
+      .ppEnabledExtensionNames = glfwExtensions
+    };
+    
+    instance = vk::raii::Instance(context, createInfo);
+    std::cout<<"-- INSTANCIA VULKAN CRIADA\n";
   }
 };
 
