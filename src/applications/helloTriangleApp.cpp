@@ -11,7 +11,17 @@ import vulkan_hpp;
 #include <stdexcept>
 #include <cstdlib>
 #include "../class/VulkanStuff.cpp"
-#include <iostream>
+#include <vector>
+
+const std::vector<char const*> validationLayers = {
+  "VK_LAYER_KHRONOS_validation"
+};
+
+#ifdef NDEBUG
+constexpr bool enableValidationLayers = false;
+#else
+constexpr bool enableValidationLayers = false;
+#endif
 
 #define APP_NAME "Hello Triangle"
 constexpr uint32_t WIDTH = 800;
@@ -76,6 +86,25 @@ private:
       }
     }
 
+    std::vector<char const*> requiredLayers;
+    if(enableValidationLayers) requiredLayers.assign(validationLayers.begin(), validationLayers.end());
+    
+    auto laterProperties = context.enumerateInstanceLayerProperties();
+    auto unsupportedLayerIt = std::ranges::find_if(
+      requiredLayers,
+		  [&layerProperties](auto const &requiredLayer) {
+			  return std::ranges::none_of(layerProperties, 
+          [requiredLayer](auto const &layerProperty) { 
+            return strcmp(layerProperty.layerName, requiredLayer) == 0; 
+          }
+        );
+      }
+    );
+
+    if(unsupportedLayerIt != requiredLayers.end()) {
+      throw std::runtime_error("Required layer not supported: "+std::string(*unsupportedLayerIt));_
+    }
+    
     VkInstanceCreateInfo createInfo {
       .pApplicationInfo = &appInfo,
       .enabledExtensionCount = glfwExtensionCount,
