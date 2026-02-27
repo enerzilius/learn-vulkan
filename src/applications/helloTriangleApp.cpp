@@ -3,31 +3,53 @@
 #else
 import vulkan_hpp;
 #endif
+
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+
 #include <iostream>
 #include <stdexcept>
 #include <cstdlib>
-#include "src/class/VulkanStuff.h"
+#include "../class/VulkanStuff.cpp"
+#include <iostream>
+
+#define APP_NAME "Hello Triangle"
+constexpr uint32_t WIDTH = 800;
+constexpr uint32_t HEIGHT = 600;
+GLFWwindow* window;
+
 
 class HelloTriangleApp {
 public:
   void run() {
+    initWindow();
     initVulkan();
-    mainLoop();  
-    cleanup();   
+    mainLoop();
+    cleanup();
   }
 private:
+  void initWindow() {
+    glfwInit();
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+
+    window = glfwCreateWindow(WIDTH, HEIGHT, APP_NAME, nullptr, nullptr);
+  }
+
   void initVulkan() {
     vks::VulkanApp app;
     app.Init("TESTE");
   }
 
   void mainLoop() {
-
+    while (!glfwWindowShouldClose(window)) {
+        glfwPollEvents();
+    }
   }
 
   void cleanup() {
-
+    glfwDestroyWindow(window);
+    glfwTerminate();
   }
 };
 
