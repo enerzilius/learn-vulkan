@@ -12,6 +12,7 @@ import vulkan_hpp;
 #include <cstdlib>
 #include "../class/VulkanStuff.cpp"
 #include <vector>
+#include <map>
 
 const std::vector<char const*> validationLayers = {
   "VK_LAYER_KHRONOS_validation"
@@ -51,6 +52,8 @@ private:
 
   void initVulkan() {
     createInstance();
+    //setupDebugMessenger();
+    pickPhysicalDevice();
   }
 
   void mainLoop() {
@@ -118,12 +121,38 @@ private:
   }
 
   std::vector<const char*> getRequiredInstanceExtensions() {
-    uint32_t glfwExtensionCount = 0;                                              
+    uint32_t glfwExtensionCount = 0;
     auto glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount); 
     
     std::vector extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
     return extensions;
   }
+
+  void pickPhysicalDevice() {
+    vk::raii::PhysicalDevice physicalDevice = nullptr;
+    auto devices = instance.enumeratePhysicalDevices();
+
+    if(devices.empty()) throw std::runtime_error("Failed to find GPUs with Vulkan support");
+    std::multimap<int, vk::raii::PhysicalDevice> candidates;
+
+    for(const auto& device : devices) {
+      auto deviceProperties = device.getProperties();
+      auto deviceFeatures = device.getFeatures();
+      uint32_t score = 0;
+
+      if(!deviceFeatures.geometryShader || deviceProperties.apiVersion >= VK_API_VERSION_1_3) continue;
+
+      if (deviceProperties.deviceType == vk::PhysicalDeviceType::eDiscreteGpu) {
+        score += 1000;
+      }
+
+      score += deviceProperties.limits.maxImageDimension2D;
+      candidates.insert(std::make_pair(score, device));
+    }
+
+    if(candidates.rbegin()->first > 0) physicalDevice = candidates.rbegin()->second();
+    else std::runtime_error("Failed to find a suitable GPU :(");
+  } 
 };
 
 int main() {
