@@ -152,7 +152,18 @@ private:
 
     if(candidates.rbegin()->first > 0) physicalDevice = candidates.rbegin()->second();
     else std::runtime_error("Failed to find a suitable GPU :(");
-  } 
+  }
+
+  uint32_t findQueueFamilies(vk::raii::PhysicalDevice physicalDevice) {
+    std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
+    
+    auto graphicsQueueFamilyProperty =
+      std::find_if(queueFamilyProperties.begin(),
+                   queueFamilyProperties.end(),
+                   []( vk::QueueFamilyProperties const & qfp ) { return qfp.queueFlags & vk::QueueFlagBits::eGraphics; } );
+
+    return static_cast<uint32_t>( std::distance( queueFamilyProperties.begin(), graphicsQueueFamilyProperty ) );
+  }
 };
 
 int main() {
