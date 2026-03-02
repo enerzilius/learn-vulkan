@@ -27,7 +27,6 @@ constexpr bool enableValidationLayers = false;
 #define APP_NAME "Hello Triangle"
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
-GLFWwindow* window;
 
 
 class HelloTriangleApp {
@@ -41,6 +40,12 @@ public:
 private:
   vk::raii::Context context;
   vk::raii::Instance instance = nullptr;
+  vk::raii::PhysicalDevice physicalDevice = nullptr;
+	vk::raii::Device device = nullptr;
+  GLFWwindow* window;
+  vk::raii::Queue graphicsQueue = nullptr;
+	std::vector<const char *> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
+
 
   void initWindow() {
     glfwInit();
@@ -54,6 +59,7 @@ private:
     createInstance();
     //setupDebugMessenger();
     pickPhysicalDevice();
+    createLogicalDevice();
   }
 
   void mainLoop() {
@@ -150,11 +156,11 @@ private:
       candidates.insert(std::make_pair(score, device));
     }
 
-    if(candidates.rbegin()->first > 0) physicalDevice = candidates.rbegin()->second();
+    if(candidates.rbegin()->first > 0) physicalDevice = candidates.rbegin()->second;
     else std::runtime_error("Failed to find a suitable GPU :(");
   }
 
-  uint32_t findQueueFamilies(vk::raii::PhysicalDevice physicalDevice) {
+  uint32_t findQueueFamilies(vk::raii::PhysicalDevice& physicalDevice) {
     std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
     
     auto graphicsQueueFamilyProperty =
@@ -163,6 +169,36 @@ private:
                    []( vk::QueueFamilyProperties const & qfp ) { return qfp.queueFlags & vk::QueueFlagBits::eGraphics; } );
 
     return static_cast<uint32_t>( std::distance( queueFamilyProperties.begin(), graphicsQueueFamilyProperty ) );
+  }
+
+  void createLogicalDevice() {
+    std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
+    uint32_t graphicsIndex = findQueueFamilies(physicalDevice);
+    float queuePriority = 0.5f;
+    VkDeviceQueueCreateInfo deviceQueueCreateInfo {
+      .queueFamilyIndex = graphicsIndex,
+      .queueCount = 1,
+      .pQueuePriorities = &queuePriority
+    };
+
+    vk::PhysicalDeviceFeatures deviceFeatures;
+
+    vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featureChain(
+      vk::PhysicalDeviceFeatures2{},
+      vk::PhysicalDeviceVulkan13Features{}.setDynamicRendering(true),
+      vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{}.setExtendedDynamicState(true)
+    );
+
+    VkDeviceCreateInfo deviceCreateInfo{
+      .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
+      .queueCreateInfoCount = 1,
+      .pQueueCreateInfos = &deviceQueueCreateInfo,
+      .enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtension.size()),
+      .ppEnabledExtensionNames = requiredDeviceExtension.data()
+    };
+
+    device = vk::raii::Device(physicalDevice, deviceCreateInfo);
+    graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
   }
 };
 
