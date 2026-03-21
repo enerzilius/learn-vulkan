@@ -21,8 +21,9 @@ const std::vector<char const*> validationLayers = {
 #ifdef NDEBUG
 constexpr bool enableValidationLayers = false;
 #else
-constexpr bool enableValidationLayers = false;
+constexpr bool enableValidationLayers = true;
 #endif
+
 
 #define APP_NAME "Hello Triangle"
 constexpr uint32_t WIDTH = 800;
@@ -40,6 +41,7 @@ public:
 private:
   vk::raii::Context context;
   vk::raii::Instance instance = nullptr;
+  vk::raii::SurfaceKHR surface = nullptr;
   vk::raii::PhysicalDevice physicalDevice = nullptr;
 	vk::raii::Device device = nullptr;
   GLFWwindow* window;
@@ -58,6 +60,7 @@ private:
   void initVulkan() {
     createInstance();
     //setupDebugMessenger();
+    createSurface();
     pickPhysicalDevice();
     createLogicalDevice();
   }
@@ -74,13 +77,12 @@ private:
   }
 
   void createInstance() {
-    constexpr VkApplicationInfo appInfo = {
-      .pApplicationName   = APP_NAME,
-      .applicationVersion = VK_MAKE_VERSION( 1, 0, 0 ),
-      .pEngineName        = "Enengine", 
-      .engineVersion      = VK_MAKE_VERSION( 1, 0, 0 ),
-      .apiVersion         = vk::ApiVersion14
-    };
+    vk::ApplicationInfo appInfo = {};
+    appInfo.pApplicationName   = APP_NAME,
+    appInfo.applicationVersion = VK_MAKE_VERSION( 1, 0, 0 );
+    appInfo.pEngineName        = "Enengine";
+    appInfo.engineVersion      = VK_MAKE_VERSION( 1, 0, 0 );
+    appInfo.apiVersion         = vk::ApiVersion14;
     
     auto requiredExtensions = getRequiredInstanceExtensions();
 
@@ -114,14 +116,13 @@ private:
       throw std::runtime_error("Required layer not supported: "+std::string(*unsupportedLayerIt));
     }
     
-    VkInstanceCreateInfo createInfo {
-      .pApplicationInfo = &appInfo,
-      .enabledLayerCount = static_cast<uint32_t>(requiredLayers.size()),
-      .ppEnabledLayerNames = requiredLayers.data(),
-      .enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size()),
-      .ppEnabledExtensionNames = requiredExtensions.data()
-    };
-    
+    vk::InstanceCreateInfo createInfo{};
+    createInfo.pApplicationInfo        = &appInfo;
+    createInfo.enabledLayerCount       = static_cast<uint32_t>(requiredLayers.size());
+    createInfo.ppEnabledLayerNames     = requiredLayers.data();
+    createInfo.enabledExtensionCount   = static_cast<uint32_t>(requiredExtensions.size());
+    createInfo.ppEnabledExtensionNames = requiredExtensions.data();
+
     instance = vk::raii::Instance(context, createInfo);
     std::cout<<"-- INSTANCIA VULKAN CRIADA\n";
   }
@@ -189,11 +190,10 @@ private:
     std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
     uint32_t graphicsIndex = findQueueFamilies(physicalDevice);
     float queuePriority = 0.5f;
-    VkDeviceQueueCreateInfo deviceQueueCreateInfo {
-      .queueFamilyIndex = graphicsIndex,
-      .queueCount = 1,
-      .pQueuePriorities = &queuePriority
-    };
+    vk::DeviceQueueCreateInfo deviceQueueCreateInfo {};
+    deviceQueueCreateInfo.queueFamilyIndex = graphicsIndex;
+    deviceQueueCreateInfo.queueCount = 1;
+    deviceQueueCreateInfo.pQueuePriorities = &queuePriority;
 
     vk::PhysicalDeviceFeatures deviceFeatures;
 
@@ -203,16 +203,21 @@ private:
       vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{}.setExtendedDynamicState(true)
     );
 
-    VkDeviceCreateInfo deviceCreateInfo{
-      .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
-      .queueCreateInfoCount = 1,
-      .pQueueCreateInfos = &deviceQueueCreateInfo,
-      .enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtension.size()),
-      .ppEnabledExtensionNames = requiredDeviceExtension.data()
-    };
+    vk::DeviceCreateInfo deviceCreateInfo{};
+    deviceCreateInfo.pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>();
+    deviceCreateInfo.queueCreateInfoCount = 1;
+    deviceCreateInfo.pQueueCreateInfos = &deviceQueueCreateInfo;
+    deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtension.size());
+    deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtension.data();
 
     device = vk::raii::Device(physicalDevice, deviceCreateInfo);
     graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
+  }
+
+  void createSurface() {
+    VkSurfaceKHR _surface;
+    if(glfwCreateWindowSurface(*instance, window, nullptr, &_surface) != 0) throw std::runtime_error("failed to create window surface!"); 
+    surface = vk::raii::SurfaceKHR(instance, _surface);
   }
 };
 
