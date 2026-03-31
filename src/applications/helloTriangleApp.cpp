@@ -63,6 +63,7 @@ private:
     createSurface();
     pickPhysicalDevice();
     createLogicalDevice();
+    createSwapChain();
   }
 
   void mainLoop() {
@@ -225,6 +226,12 @@ private:
     VkSurfaceKHR _surface;
     if(glfwCreateWindowSurface(*instance, window, nullptr, &_surface) != 0) throw std::runtime_error("failed to create window surface!"); 
     surface = vk::raii::SurfaceKHR(instance, _surface);
+  }
+
+  void createSwapChain() {
+    auto surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR(*surface);
+    std::vector<vk::SurfaceFormatKHR> availableFormats = physicalDevice.getSurfaceFormatsKHR(surface);
+    std::vector<vk::PresentModeKHR> avaialablePresentModes = physicalDevice.getSurfacePresentModesKHR(surface);
   }
 };
 
