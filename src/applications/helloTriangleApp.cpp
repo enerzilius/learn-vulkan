@@ -1,3 +1,5 @@
+#include "vulkan/vulkan.hpp"
+#include <cassert>
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #include <vulkan/vulkan_raii.hpp>
 #else
@@ -68,6 +70,7 @@ private:
     pickPhysicalDevice();
     createLogicalDevice();
     createSwapChain();
+    createImageViews();
   }
 
   void mainLoop() {
@@ -339,6 +342,24 @@ private:
       minImageCount = surfaceCapabilities.maxImageCount;
     }
     return minImageCount;
+  }
+
+  void createImageViews() {
+    assert(swapChainImageViews.empty());
+
+    vk::ImageViewCreateInfo imageViewCreateInfo{};
+    imageViewCreateInfo.viewType = vk::ImageViewType::e2D;
+    imageViewCreateInfo.format = swapChainSurfaceFormat.format;
+    imageViewCreateInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0,
+                                            1, 0, 1};
+    imageViewCreateInfo.components = {
+        vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
+        vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity};
+
+    for (auto &image : swapChainImages) {
+      imageViewCreateInfo.image = image;
+      swapChainImageViews.emplace_back(device, imageViewCreateInfo);
+    }
   }
 };
 
