@@ -366,6 +366,30 @@ private:
 
   void createGraphicsPipeline() {
     auto shaderCode = readFile("shaders/slang.spv");
+    auto shaderModule = createShaderModule(shaderCode);
+
+    vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
+    vertShaderStageInfo.stage = vk::ShaderStageFlagBits::eVertex;
+    vertShaderStageInfo.module = shaderModule;
+    vertShaderStageInfo.pName = "vertMain";
+
+    vk::PipelineShaderStageCreateInfo fragShaderStageInfo{};
+    fragShaderStageInfo.stage = vk::ShaderStageFlagBits::eFragment;
+    fragShaderStageInfo.module = shaderModule;
+    fragShaderStageInfo.pName = "fragMain";
+
+    vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo,
+                                                        fragShaderStageInfo};
+  }
+
+  [[nodiscard]] vk::raii::ShaderModule
+  createShaderModule(const std::vector<char> &code) {
+    vk::ShaderModuleCreateInfo createInfo{};
+    createInfo.codeSize = code.size() * sizeof(char),
+    createInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
+
+    vk::raii::ShaderModule shaderModule{device, createInfo};
+    return shaderModule;
   }
 };
 

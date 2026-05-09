@@ -1,4 +1,6 @@
 #include "utils.h"
+#include <vulkan/vulkan_raii.hpp>
+
 std::vector<char> readFile(const std::string &filename) {
   std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
