@@ -1,15 +1,23 @@
-.PHONY: all vkStuff helloTriangle clean
+.PHONY: all vkStuff helloTriangle utils main clean
 
-all: main vkStuff helloTriangle
+CC=g++ --std=c++20
+ARGS=-lvulkan -lglfw3 -lGL -lX11 -lpthread -lXrandr -lXi -ldl -o
 
-main: 
-	g++ -std=c++20 main.cpp src/class/VulkanStuff.cpp -lvulkan -lglfw3 -lGL -lX11 -lpthread -lXrandr -lXi -ldl -o main.out
+APPS_PATH=src/applications
+UTILS_PATH= src/utils
 
-vkStuff:
-	g++ -std=c++20 src/class/VulkanStuff.cpp -lvulkan -lglfw3 -lGL -lX11 -lpthread -lXrandr -lXi -ldl
+UTILS=utils
+TRIANGLE=helloTriangleApp
 
-helloTriangle:
-	g++ --std=c++20 src/applications/helloTriangleApp.cpp -lvulkan -lglfw3 -lGL -lX11 -lpthread -lXrandr -lXi -ldl -o helloTriangle.out
+PROGS=$(UTILS) $(TRIANGLE)
+
+all: $(PROGS)
+
+$(TRIANGLE): $(UTILS)
+	$(CC) $(APPS_PATH)/$(TRIANGLE).cpp $(UTILS).o $(ARGS) $(TRIANGLE).out
+
+$(UTILS):
+	$(CC) -c $(UTILS_PATH)/$(UTILS).cpp -o $(UTILS).o
 
 clean:
-	rm -rf *.out
+	rm -rf *.out *.o

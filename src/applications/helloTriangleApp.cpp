@@ -9,6 +9,7 @@ import vulkan_hpp;
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include "../utils/utils.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
@@ -71,6 +72,7 @@ private:
     createLogicalDevice();
     createSwapChain();
     createImageViews();
+    createGraphicsPipeline();
   }
 
   void mainLoop() {
@@ -360,6 +362,10 @@ private:
       imageViewCreateInfo.image = image;
       swapChainImageViews.emplace_back(device, imageViewCreateInfo);
     }
+  }
+
+  void createGraphicsPipeline() {
+    auto shaderCode = readFile("shaders/slang.spv");
   }
 };
 
