@@ -451,6 +451,33 @@ private:
     pipelineLayoutInfo.pushConstantRangeCount = 0;
 
     pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
+
+    vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo{};
+    graphicsPipelineCreateInfo.stageCount = 2;
+    graphicsPipelineCreateInfo.pStages = shaderStages;
+    graphicsPipelineCreateInfo.pVertexInputState = &vertexInputInfo;
+    graphicsPipelineCreateInfo.pInputAssemblyState = &inputAssembly;
+    graphicsPipelineCreateInfo.pViewportState = &viewportState;
+    graphicsPipelineCreateInfo.pRasterizationState = &rasterizer;
+    graphicsPipelineCreateInfo.pMultisampleState = &multisampling;
+    graphicsPipelineCreateInfo.pColorBlendState = &colorBlending;
+    graphicsPipelineCreateInfo.pDynamicState = &dynamicState;
+    graphicsPipelineCreateInfo.layout = pipelineLayout;
+    graphicsPipelineCreateInfo.renderPass = nullptr;
+
+    vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo{};
+    pipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    pipelineRenderingCreateInfo.pColorAttachmentFormats =
+        &swapChainSurfaceFormat.format;
+
+    vk::StructureChain<vk::GraphicsPipelineCreateInfo,
+                       vk::PipelineRenderingCreateInfo>
+        pipelineCreateInfoChain{graphicsPipelineCreateInfo,
+                                pipelineRenderingCreateInfo};
+
+    vk::raii::Pipeline graphicsPipeline = vk::raii::Pipeline(
+        device, nullptr,
+        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
   }
 
   [[nodiscard]] vk::raii::ShaderModule
