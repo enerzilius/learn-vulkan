@@ -1,5 +1,6 @@
 #include "vulkan/vulkan.hpp"
 #include <cassert>
+#include <vulkan/vulkan_core.h>
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #include <vulkan/vulkan_raii.hpp>
 #else
@@ -46,6 +47,7 @@ private:
   vk::raii::SurfaceKHR surface = nullptr;
   vk::raii::PhysicalDevice physicalDevice = nullptr;
   vk::raii::Device device = nullptr;
+  uint32_t queueIndex = ~0;
   GLFWwindow *window;
   vk::raii::Queue graphicsQueue = nullptr;
   std::vector<const char *> requiredDeviceExtension = {
@@ -55,6 +57,11 @@ private:
   vk::SurfaceFormatKHR swapChainSurfaceFormat;
   vk::Extent2D swapChainExtent;
   std::vector<vk::raii::ImageView> swapChainImageViews;
+
+  vk::raii::PipelineLayout pipelineLayout = nullptr;
+  vk::raii::Pipeline graphicsPipeline = nullptr;
+  vk::raii::CommandPool commandPool = nullptr;
+  vk::raii::CommandBuffer commandBuffer = nullptr;
 
   void initWindow() {
     glfwInit();
@@ -73,6 +80,8 @@ private:
     createSwapChain();
     createImageViews();
     createGraphicsPipeline();
+    createCommandPool();
+    createCommandBuffer();
   }
 
   void mainLoop() {
@@ -229,10 +238,16 @@ private:
     std::vector<vk::QueueFamilyProperties> queueFamilyProperties =
         physicalDevice.getQueueFamilyProperties();
 
-    uint32_t graphicsIndex = findQueueFamilies(physicalDevice);
+    queueIndex = findQueueFamilies(physicalDevice);
+
+    if (queueIndex == ~0) {
+      throw std::runtime_error(
+          "Could not find a queue for graphics and present -> terminating");
+    }
+
     float queuePriority = 0.5f;
     vk::DeviceQueueCreateInfo deviceQueueCreateInfo{};
-    deviceQueueCreateInfo.queueFamilyIndex = graphicsIndex;
+    deviceQueueCreateInfo.queueFamilyIndex = queueIndex;
     deviceQueueCreateInfo.queueCount = 1;
     deviceQueueCreateInfo.pQueuePriorities = &queuePriority;
 
@@ -256,7 +271,7 @@ private:
     deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtension.data();
 
     device = vk::raii::Device(physicalDevice, deviceCreateInfo);
-    graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
+    graphicsQueue = vk::raii::Queue(device, queueIndex, 0);
   }
 
   void createSurface() {
@@ -444,8 +459,6 @@ private:
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
 
-    vk::raii::PipelineLayout pipelineLayout = nullptr;
-
     vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.setLayoutCount = 0;
     pipelineLayoutInfo.pushConstantRangeCount = 0;
@@ -475,7 +488,7 @@ private:
         pipelineCreateInfoChain{graphicsPipelineCreateInfo,
                                 pipelineRenderingCreateInfo};
 
-    vk::raii::Pipeline graphicsPipeline = vk::raii::Pipeline(
+    graphicsPipeline = vk::raii::Pipeline(
         device, nullptr,
         pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
   }
@@ -488,6 +501,50 @@ private:
 
     vk::raii::ShaderModule shaderModule{device, createInfo};
     return shaderModule;
+  }
+
+  void createCommandPool() {
+    vk::CommandPoolCreateInfo poolInfo{};
+    poolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
+    poolInfo.queueFamilyIndex = queueIndex;
+    commandPool = vk::raii::CommandPool(device, poolInfo);
+  }
+
+  void createCommandBuffer() {
+    vk::CommandBufferAllocateInfo allocInfo{};
+    allocInfo.commandPool = commandPool;
+    allocInfo.level = vk::CommandBufferLevel::ePrimary;
+    allocInfo.commandBufferCount = 1;
+
+    commandBuffer =
+        std::move(vk::raii::CommandBuffers(device, allocInfo).front());
+  }
+
+  void recordCommandBuffer(uint32_t imageIndex) { commandBuffer.begin({}); }
+
+  void transitionImageLayout(uint32_t imageIndex, vk::ImageLayout oldLayout,
+                             vk::ImageLayout newLayout,
+                             vk::AccessFlags2 srcAccessMask,
+                             vk::AccessFlags2 dstAccessMask,
+                             vk::PipelineStageFlags2 srcStageMask,
+                             vk::PipelineStageFlags2 dstStageMask) {
+    vk::ImageMemoryBarrier2 barrier{};
+    barrier.srcStageMask = srcStageMask;
+    barrier.srcAccessMask = srcAccessMask;
+    barrier.dstStageMask = dstStageMask;
+    barrier.dstAccessMask = dstAccessMask;
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = swapChainImages[imageIndex];
+    barrier.subresourceRange =
+        vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
+    vk::DependencyInfo dependencyInfo{};
+    dependencyInfo.dependencyFlags = {};
+    dependencyInfo.imageMemoryBarrierCount = 1;
+    dependencyInfo.pImageMemoryBarriers = &barrier;
+    commandBuffer.pipelineBarrier2(dependencyInfo);
   }
 };
 
