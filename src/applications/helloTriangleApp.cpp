@@ -520,7 +520,73 @@ private:
         std::move(vk::raii::CommandBuffers(device, allocInfo).front());
   }
 
-  void recordCommandBuffer(uint32_t imageIndex) { commandBuffer.begin({}); }
+  void recordCommandBuffer(uint32_t imageIndex) {
+    // starting dynamic rendering
+    commandBuffer.begin({});
+
+    // specifying attachments for rendering
+    transitionImageLayout(
+        imageIndex, vk::ImageLayout::eUndefined,
+        vk::ImageLayout::eColorAttachmentOptimal,
+        {}, // srcAccessMask (no need to wait for previous operations)
+        vk::AccessFlagBits2::eColorAttachmentWrite,         // dstAccessMask
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput, // srcStage
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput  // dstStage
+    );
+
+    // setting up color attachments
+    vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
+    vk::RenderingAttachmentInfo attachmentInfo{};
+    attachmentInfo.imageView = swapChainImageViews[imageIndex];
+    attachmentInfo.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
+    attachmentInfo.loadOp = vk::AttachmentLoadOp::eClear;
+    // what happens to the rendered image after being cleaed
+    // in this case, stored for later use
+    attachmentInfo.storeOp = vk::AttachmentStoreOp::eStore;
+    attachmentInfo.clearValue = clearColor; // sets black as the clear color
+
+    vk::RenderingInfo renderingInfo{};
+    renderingInfo.renderArea = {.offset = {0, 0}, .extent = swapChainExtent};
+    renderingInfo.layerCount = 1;
+    renderingInfo.colorAttachmentCount = 1;
+    renderingInfo.pColorAttachments = &attachmentInfo;
+
+    // basic drawing commands
+    commandBuffer.beginRendering(renderingInfo);
+    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                               *graphicsPipeline);
+    commandBuffer.setViewport(
+        0,
+        vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width),
+                     static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
+    commandBuffer.setScissor(0,
+                             vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
+
+    int vertexCount = 3;
+    int instancedRendering = 1; // not using instanced rendering
+    // offset of vertexBuffer
+    // defines the lowest value of SV_vertexID
+    int firstVertex = 0;
+    // offset for instanced rendering, defines lowest value of SV_InstanceID
+    int firstInstance = 0;
+    commandBuffer.draw(vertexCount, instancedRendering, firstVertex,
+                       firstInstance);
+
+    commandBuffer.endRendering();
+
+    // after rendering, transition the swapchain image to
+    // vk::ImageLayout::ePresentSrcKHR
+    transitionImageLayout(
+        imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
+        vk::ImageLayout::ePresentSrcKHR,
+        vk::AccessFlagBits2::eColorAttachmentWrite,         // srcAccessMask
+        {},                                                 // dstAccessMask
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput, // srcStage
+        vk::PipelineStageFlagBits2::eBottomOfPipe           // dstStage
+    );
+
+    commandBuffer.end();
+  }
 
   void transitionImageLayout(uint32_t imageIndex, vk::ImageLayout oldLayout,
                              vk::ImageLayout newLayout,
@@ -538,8 +604,8 @@ private:
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = swapChainImages[imageIndex];
-    barrier.subresourceRange =
-        vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
+    barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+
     vk::DependencyInfo dependencyInfo{};
     dependencyInfo.dependencyFlags = {};
     dependencyInfo.imageMemoryBarrierCount = 1;
