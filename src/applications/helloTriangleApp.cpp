@@ -63,6 +63,11 @@ private:
   vk::raii::CommandPool commandPool = nullptr;
   vk::raii::CommandBuffer commandBuffer = nullptr;
 
+  // semaphores and fences used for synchronization
+  vk::raii::Semaphore presentCompleteSemaphore = nullptr;
+  vk::raii::Semaphore renderFinishedSemaphore = nullptr;
+  vk::raii::Fence drawFence = nullptr;
+
   void initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -82,11 +87,13 @@ private:
     createGraphicsPipeline();
     createCommandPool();
     createCommandBuffer();
+    createSyncObjects();
   }
 
   void mainLoop() {
     while (!glfwWindowShouldClose(window)) {
       glfwPollEvents();
+      drawFrame();
     }
   }
 
@@ -503,8 +510,12 @@ private:
     return shaderModule;
   }
 
+  // command pools manage the memory used for the buffers and command buffers
   void createCommandPool() {
     vk::CommandPoolCreateInfo poolInfo{};
+    // eTransient would hint that commandBuffers are changed constantly, which
+    // may change memory allocation behaviour permite que os commandBuffers
+    // eResetCommandBuffer allows commandBuffers to be rerecorded individually
     poolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
     poolInfo.queueFamilyIndex = queueIndex;
     commandPool = vk::raii::CommandPool(device, poolInfo);
@@ -575,7 +586,7 @@ private:
     commandBuffer.endRendering();
 
     // after rendering, transition the swapchain image to
-    // vk::ImageLayout::ePresentSrcKHR
+    // vk::ImageLayout::ePresentSrcKHR so it can eb rendered to the screen
     transitionImageLayout(
         imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
         vk::ImageLayout::ePresentSrcKHR,
@@ -588,6 +599,7 @@ private:
     commandBuffer.end();
   }
 
+  // transitions the image layout to one that can be rendered on
   void transitionImageLayout(uint32_t imageIndex, vk::ImageLayout oldLayout,
                              vk::ImageLayout newLayout,
                              vk::AccessFlags2 srcAccessMask,
@@ -611,6 +623,51 @@ private:
     dependencyInfo.imageMemoryBarrierCount = 1;
     dependencyInfo.pImageMemoryBarriers = &barrier;
     commandBuffer.pipelineBarrier2(dependencyInfo);
+  }
+
+  // drawing a frame consists on:
+  // Wait for previous frame to finish => acquire image rom swap
+  // swapChainImages
+  // => record commandBuffer that draws the scene on the image => submit
+  // recorded buffer => present the swapchain image
+  // Sync methods:
+  // semaphore -> used to order the operations
+  // fence -> lets CPU know when GPU is done rendering
+  void drawFrame() {
+    // waiting for the previous frame
+    auto fenceResult = device.waitForFences(*drawFence, vk::True, UINT64_MAX);
+    if (fenceResult != vk::Result::eSuccess) {
+      throw std::runtime_error("failed to wait for fence!\n");
+    }
+    device.resetFences(*drawFence);
+
+    // getting image from framebuffer and recording the command
+    auto [result, imageIndex] = swapChain.acquireNextImage(
+        UINT64_MAX, *presentCompleteSemaphore, nullptr);
+    recordCommandBuffer(imageIndex);
+
+    const vk::PresentInfoKHR presentInfoKHR(1, &*renderFinishedSemaphore, 1,
+                                            &*swapChain, &imageIndex);
+
+    result = graphicsQueue.presentKHR(presentInfoKHR);
+  }
+
+  void createSyncObjects() {
+    // initializing sync objects
+    presentCompleteSemaphore =
+        vk::raii::Semaphore(device, vk::SemaphoreCreateInfo());
+    renderFinishedSemaphore =
+        vk::raii::Semaphore(device, vk::SemaphoreCreateInfo());
+    vk::FenceCreateInfo fenceCreateInfo{};
+    fenceCreateInfo.flags = vk::FenceCreateFlagBits::eSignaled;
+    drawFence = vk::raii::Fence(device, fenceCreateInfo);
+
+    vk::PipelineStageFlags waitDestinationStageMask(
+        vk::PipelineStageFlagBits::eColorAttachmentOutput);
+    const vk::SubmitInfo submitInfo(
+        1, &*presentCompleteSemaphore, &waitDestinationStageMask, 1,
+        &*commandBuffer, 1, &*renderFinishedSemaphore);
+    graphicsQueue.submit(submitInfo, *drawFence);
   }
 };
 

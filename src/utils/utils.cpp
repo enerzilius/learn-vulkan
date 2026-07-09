@@ -1,7 +1,9 @@
 #include "utils.h"
+#include <iostream>
 #include <vulkan/vulkan_raii.hpp>
 
 std::vector<char> readFile(const std::string &filename) {
+  std::cout << "Opening file: " << filename << "\n";
   std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
   if (!file.is_open()) {
