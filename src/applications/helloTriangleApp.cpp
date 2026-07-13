@@ -387,7 +387,7 @@ private:
   }
 
   void createGraphicsPipeline() {
-    auto shaderCode = readFile("shaders/slang.spv");
+    auto shaderCode = readFile("build/shaders.spv");
     auto shaderModule = createShaderModule(shaderCode);
 
     vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};

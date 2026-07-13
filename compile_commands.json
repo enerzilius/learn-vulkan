@@ -1,0 +1,27 @@
+[
+  {
+    "file": "src/utils/utils.cpp",
+    "arguments": [
+      "/usr/bin/g++",
+      "--std=c++20",
+      "-c",
+      "src/utils/utils.cpp",
+      "-o",
+      "utils.o"
+    ],
+    "directory": "/home/ener/projects/learn-vulkan",
+    "output": "utils.o"
+  },
+  {
+    "file": "src/applications/helloTriangleApp.cpp",
+    "arguments": [
+      "/usr/bin/g++",
+      "--std=c++20",
+      "src/applications/helloTriangleApp.cpp",
+      "-o",
+      "helloTriangleApp.out"
+    ],
+    "directory": "/home/ener/projects/learn-vulkan",
+    "output": "helloTriangleApp.out"
+  }
+]
