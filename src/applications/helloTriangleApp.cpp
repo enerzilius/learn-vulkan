@@ -510,7 +510,6 @@ private:
   [[nodiscard]] vk::raii::ShaderModule
   createShaderModule(const std::vector<char> &code) {
     vk::ShaderModuleCreateInfo createInfo{};
-    std::cout << "COde size: " << code.size();
     createInfo.codeSize = code.size() * sizeof(char),
     createInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
 
@@ -654,10 +653,31 @@ private:
         UINT64_MAX, *presentCompleteSemaphore, nullptr);
     recordCommandBuffer(imageIndex);
 
+    graphicsQueue.waitIdle(); // waiting for queue to be idle before starting
+                              // frame for simplicity
+
+    vk::PipelineStageFlags waitDestinationStageMask(
+        vk::PipelineStageFlagBits::eColorAttachmentOutput);
+    const vk::SubmitInfo submitInfo(
+        1, &*presentCompleteSemaphore, &waitDestinationStageMask, 1,
+        &*commandBuffer, 1, &*renderFinishedSemaphore);
+    graphicsQueue.submit(submitInfo, *drawFence);
+
     const vk::PresentInfoKHR presentInfoKHR(1, &*renderFinishedSemaphore, 1,
                                             &*swapChain, &imageIndex);
 
     result = graphicsQueue.presentKHR(presentInfoKHR);
+
+    switch (result) {
+    case vk::Result::eSuccess:
+      break;
+    case vk::Result::eSuboptimalKHR:
+      std::cout << "presentKHR returned vk::Result::eSuboptimalKHR (" << result
+                << ")\n";
+    default:
+      std::cout << "Unexpected result for presentKHR\n";
+      break;
+    }
   }
 
   void createSyncObjects() {
@@ -669,13 +689,6 @@ private:
     vk::FenceCreateInfo fenceCreateInfo{};
     fenceCreateInfo.flags = vk::FenceCreateFlagBits::eSignaled;
     drawFence = vk::raii::Fence(device, fenceCreateInfo);
-
-    vk::PipelineStageFlags waitDestinationStageMask(
-        vk::PipelineStageFlagBits::eColorAttachmentOutput);
-    const vk::SubmitInfo submitInfo(
-        1, &*presentCompleteSemaphore, &waitDestinationStageMask, 1,
-        &*commandBuffer, 1, &*renderFinishedSemaphore);
-    graphicsQueue.submit(submitInfo, *drawFence);
   }
 };
 
