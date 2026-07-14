@@ -245,37 +245,44 @@ private:
     std::vector<vk::QueueFamilyProperties> queueFamilyProperties =
         physicalDevice.getQueueFamilyProperties();
 
-    queueIndex = findQueueFamilies(physicalDevice);
-
+    // get the first index into queueFamilyProperties which supports both
+    // graphics and present
+    for (uint32_t qfpIndex = 0; qfpIndex < queueFamilyProperties.size();
+         qfpIndex++) {
+      if ((queueFamilyProperties[qfpIndex].queueFlags &
+           vk::QueueFlagBits::eGraphics) &&
+          physicalDevice.getSurfaceSupportKHR(qfpIndex, *surface)) {
+        // found a queue family that supports both graphics and present
+        queueIndex = qfpIndex;
+        break;
+      }
+    }
     if (queueIndex == ~0) {
       throw std::runtime_error(
           "Could not find a queue for graphics and present -> terminating");
     }
 
-    float queuePriority = 0.5f;
-    vk::DeviceQueueCreateInfo deviceQueueCreateInfo{};
-    deviceQueueCreateInfo.queueFamilyIndex = queueIndex;
-    deviceQueueCreateInfo.queueCount = 1;
-    deviceQueueCreateInfo.pQueuePriorities = &queuePriority;
-
-    vk::PhysicalDeviceFeatures deviceFeatures;
-
+    // query for Vulkan 1.3 features
     vk::StructureChain<vk::PhysicalDeviceFeatures2,
+                       vk::PhysicalDeviceVulkan11Features,
                        vk::PhysicalDeviceVulkan13Features,
                        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
         featureChain(
             vk::PhysicalDeviceFeatures2{},
+            vk::PhysicalDeviceVulkan11Features{}.setShaderDrawParameters(true),
             vk::PhysicalDeviceVulkan13Features{}.setDynamicRendering(true),
             vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{}
                 .setExtendedDynamicState(true));
 
-    vk::DeviceCreateInfo deviceCreateInfo{};
-    deviceCreateInfo.pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>();
-    deviceCreateInfo.queueCreateInfoCount = 1;
-    deviceCreateInfo.pQueueCreateInfos = &deviceQueueCreateInfo;
-    deviceCreateInfo.enabledExtensionCount =
-        static_cast<uint32_t>(requiredDeviceExtension.size());
-    deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtension.data();
+    // create a Device
+    float queuePriority = 0.5f;
+    vk::DeviceQueueCreateInfo deviceQueueCreateInfo({}, queueIndex, 1,
+                                                    &queuePriority);
+    vk::DeviceCreateInfo deviceCreateInfo(
+        {}, 1, &deviceQueueCreateInfo, {}, {},
+        static_cast<uint32_t>(requiredDeviceExtension.size()),
+        requiredDeviceExtension.data(), {},
+        &featureChain.get<vk::PhysicalDeviceFeatures2>());
 
     device = vk::raii::Device(physicalDevice, deviceCreateInfo);
     graphicsQueue = vk::raii::Queue(device, queueIndex, 0);
@@ -503,6 +510,7 @@ private:
   [[nodiscard]] vk::raii::ShaderModule
   createShaderModule(const std::vector<char> &code) {
     vk::ShaderModuleCreateInfo createInfo{};
+    std::cout << "COde size: " << code.size();
     createInfo.codeSize = code.size() * sizeof(char),
     createInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
 
