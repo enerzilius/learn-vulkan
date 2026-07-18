@@ -95,6 +95,8 @@ private:
       glfwPollEvents();
       drawFrame();
     }
+
+    device.waitIdle();
   }
 
   void cleanup() {
@@ -270,7 +272,9 @@ private:
         featureChain(
             vk::PhysicalDeviceFeatures2{},
             vk::PhysicalDeviceVulkan11Features{}.setShaderDrawParameters(true),
-            vk::PhysicalDeviceVulkan13Features{}.setDynamicRendering(true),
+            vk::PhysicalDeviceVulkan13Features{}
+                .setDynamicRendering(true)
+                .setSynchronization2(vk::True),
             vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{}
                 .setExtendedDynamicState(true));
 
