@@ -73,12 +73,16 @@ private:
   std::vector<vk::raii::Fence> inFlightFences;
   uint32_t frameIndex = 0;
 
+  bool framebufferResized = false;
+
   void initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
     window = glfwCreateWindow(WIDTH, HEIGHT, APP_NAME, nullptr, nullptr);
+    // allows glfw to access the class' functions
+    glfwSetWindowUserPointer(window, this);
+    glfwSetFramebufferSizeCallback(window, frameBufferResizeCallback);
   }
 
   void initVulkan() {
@@ -105,6 +109,8 @@ private:
   }
 
   void cleanup() {
+    cleanupSwapChain();
+
     glfwDestroyWindow(window);
     glfwTerminate();
   }
@@ -653,11 +659,26 @@ private:
     if (fenceResult != vk::Result::eSuccess) {
       throw std::runtime_error("failed to wait for fence!\n");
     }
-    device.resetFences(*inFlightFences[frameIndex]);
 
     // getting image from framebuffer and recording the command
     auto [result, imageIndex] = swapChain.acquireNextImage(
         UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
+
+    // we'll use the result of acquireNetxIMage to determine if we need to
+    // recreate the swapChain
+    if (result == vk::Result::eErrorOutOfDateKHR) {
+      recreateSwapChain();
+      return;
+    }
+    if (result != vk::Result::eSuccess &&
+        result != vk::Result::eSuboptimalKHR) {
+      assert(result == vk::Result::eTimeout || result == vk::Result::eNotReady);
+      throw std::runtime_error("Failed to acquire swapchain image :(");
+    }
+
+    // only reset fences if submitting work: avoids deadlock
+    device.resetFences(*inFlightFences[frameIndex]);
+
     commandBuffers[frameIndex].reset();
     recordCommandBuffer(imageIndex);
 
@@ -673,16 +694,15 @@ private:
         1, &*renderFinishedSemaphores[frameIndex], 1, &*swapChain, &imageIndex);
 
     result = graphicsQueue.presentKHR(presentInfoKHR);
-
-    switch (result) {
-    case vk::Result::eSuccess:
-      break;
-    case vk::Result::eSuboptimalKHR:
-      std::cout << "presentKHR returned vk::Result::eSuboptimalKHR (" << result
-                << ")\n";
-    default:
-      std::cout << "Unexpected result for presentKHR\n";
-      break;
+    if ((result == vk::Result::eSuboptimalKHR) ||
+        (result == vk::Result::eErrorOutOfDateKHR)) {
+      // to ensure semaphores are consistent
+      framebufferResized = false;
+      recreateSwapChain();
+    } else {
+      // There are no other success codes than eSuccess; on any error code,
+      // presentKHR already threw an exception.
+      assert(result == vk::Result::eSuccess);
     }
 
     frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
@@ -701,6 +721,35 @@ private:
       inFlightFences.emplace_back(
           device, vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled));
     }
+  }
+
+  // allows recreation of the swapchain in cases like window size changing
+  void recreateSwapChain() {
+    // as to not touch resources still in use
+    device.waitIdle();
+
+    cleanupSwapChain();
+
+    // we could recreate the renderpass to account for thinhs like changing the
+    // window from a stardart range monitor to a high dynamic range one
+    // omitted for simplicity xD
+
+    // since window sized is requeried when creating a swapchain, it doesn't
+    // need to be modified
+    createSwapChain();
+    createImageViews();
+  }
+
+  void cleanupSwapChain() {
+    swapChainImageViews.clear();
+    swapChain = nullptr;
+  }
+
+  static void frameBufferResizeCallback(GLFWwindow *window, int width,
+                                        int htight) {
+    auto app =
+        reinterpret_cast<HelloTriangleApp *>(glfwGetWindowUserPointer(window));
+    app->framebufferResized = true;
   }
 };
 
