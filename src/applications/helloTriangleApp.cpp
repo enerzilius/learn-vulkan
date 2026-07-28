@@ -725,6 +725,13 @@ private:
 
   // allows recreation of the swapchain in cases like window size changing
   void recreateSwapChain() {
+    int width = 0, height = 0;
+    glfwGetFramebufferSize(window, &width, &height);
+    while (width == 0 || height == 0) {
+      glfwGetFramebufferSize(window, &width, &height);
+      glfwWaitEvents();
+    }
+
     // as to not touch resources still in use
     device.waitIdle();
 
