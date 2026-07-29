@@ -1,5 +1,6 @@
 #include "vulkan/vulkan.hpp"
 #include <cassert>
+#include <cstddef>
 #include <vulkan/vulkan_core.h>
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #include <vulkan/vulkan_raii.hpp>
@@ -12,12 +13,40 @@ import vulkan_hpp;
 
 #include "../utils/utils.h"
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <vector>
+
+// vector types + other math stuff
+#include <glm/glm.hpp>
+
+struct Vertex {
+  glm::vec2 pos;
+  glm::vec3 color;
+
+  // needed to tell Vulkan how to pass this data format to the shader
+  static vk::VertexInputBindingDescription getBindingDescription() {
+    auto bindDesc = vk::VertexInputBindingDescription(
+        0, sizeof(Vertex), vk::VertexInputRate::eVertex);
+    return bindDesc;
+  }
+
+  // second structure to describe vertex input handling
+  static std::array<vk::VertexInputAttributeDescription, 2>
+  getAttributeDescriptions() {
+    // binding: tells vulkan which binding the vertex data comes from
+    // format: type (and size) of data of the attribute - S:signed U:unsigned
+    auto posAttributes = vk::VertexInputAttributeDescription(
+        0, 0, vk::Format::eR32G32Sfloat, offsetof(Vertex, pos));
+    auto colorAttributes = vk::VertexInputAttributeDescription(
+        1, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, color));
+    return {posAttributes, colorAttributes};
+  }
+};
 
 const std::vector<char const *> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
@@ -35,6 +64,10 @@ constexpr uint32_t HEIGHT = 600;
 // 2 is used so the CPU doesn't get too ahead of the GPU and doesn't creeate too
 // much latency
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+
+const std::vector<Vertex> vertices = {{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+                                      {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+                                      {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
 
 class HelloTriangleApp {
 public:
@@ -422,6 +455,16 @@ private:
     fragShaderStageInfo.module = shaderModule;
     fragShaderStageInfo.pName = "fragMain";
 
+    auto bindingDescription = Vertex::getBindingDescription();
+    auto attributeDescriptions = Vertex::getAttributeDescriptions();
+
+    vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount =
+        static_cast<uint32_t>(attributeDescriptions.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+
     vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo,
                                                         fragShaderStageInfo};
 
@@ -431,8 +474,6 @@ private:
     dynamicState.dynamicStateCount =
         static_cast<uint32_t>(dynamicStates.size());
     dynamicState.pDynamicStates = dynamicStates.data();
-
-    vk::PipelineVertexInputStateCreateInfo vertexInputInfo;
 
     vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
