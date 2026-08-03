@@ -4,4 +4,5 @@ Based mostly on:
 - [Vulkan Documentation's getting started](https://docs.vulkan.org/tutorial/latest/01_Overview.html)
 ## Dependencies:
 - [Vulkan SDK](https://vulkan.lunarg.com/sdk/home)
+- [Slang compiler](https://aur.archlinux.org/packages/shader-slang)
 
