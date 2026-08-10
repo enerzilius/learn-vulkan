@@ -1,7 +1,7 @@
 .PHONY: all vkStuff helloTriangle utils main clean shaders
 
 CC=g++ --std=c++20
-ARGS=-lvulkan -lglfw3 -lGL -lX11 -lpthread -lXrandr -lXi -ldl -o
+ARGS=-lvulkan -lglfw -lGL -lX11 -lpthread -lXrandr -lXi -ldl -o
 
 SLANG ?= slangc
 ENTRY_POINTS := -entry vertMain -entry fragMain
