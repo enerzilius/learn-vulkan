@@ -4,5 +4,4 @@ Based mostly on:
 - [Vulkan Documentation's getting started](https://docs.vulkan.org/tutorial/latest/01_Overview.html)
 ## Dependencies:
 - [Vulkan SDK](https://vulkan.lunarg.com/sdk/home)
-- [Slang compiler](https://aur.archlinux.org/packages/shader-slang)
-
+- Had to add `fish_add_path .../Vulkan/1.4.357.0/x86_64/bin/slangc` on config.fish for it to recognize the slang compiler
