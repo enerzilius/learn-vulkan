@@ -28,7 +28,7 @@ struct Vertex {
   glm::vec2 pos;
   glm::vec3 color;
 
-  // needed to tell Vulkan how to pass this data format to the shader
+  // this is needed to tell Vulkan how to pass this data format to the shader
   static vk::VertexInputBindingDescription getBindingDescription() {
     auto bindDesc = vk::VertexInputBindingDescription(
         0, sizeof(Vertex), vk::VertexInputRate::eVertex);
@@ -98,6 +98,7 @@ private:
   vk::raii::PipelineLayout pipelineLayout = nullptr;
   vk::raii::Pipeline graphicsPipeline = nullptr;
   vk::raii::CommandPool commandPool = nullptr;
+  vk::raii::Buffer vertexBuffer = nullptr;
   std::vector<vk::raii::CommandBuffer> commandBuffers;
 
   // semaphores and fences used for synchronization
@@ -128,6 +129,7 @@ private:
     createImageViews();
     createGraphicsPipeline();
     createCommandPool();
+    createVertexBuffer();
     createComandBuffers();
     createSyncObjects();
   }
@@ -442,7 +444,7 @@ private:
   }
 
   void createGraphicsPipeline() {
-    auto shaderCode = readFile("build/shaders.spv");
+    auto shaderCode = readFile("hello_t.spv");
     auto shaderModule = createShaderModule(shaderCode);
 
     vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
@@ -457,7 +459,6 @@ private:
 
     auto bindingDescription = Vertex::getBindingDescription();
     auto attributeDescriptions = Vertex::getAttributeDescriptions();
-
     vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.vertexBindingDescriptionCount = 1;
     vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
@@ -798,6 +799,35 @@ private:
     auto app =
         reinterpret_cast<HelloTriangleApp *>(glfwGetWindowUserPointer(window));
     app->framebufferResized = true;
+  }
+
+  void createVertexBuffer() {
+    // buffer specifically made to store the vertex data (indicated by the usage
+    // parameter)
+    vk::BufferCreateInfo vertexBufferInfo(
+        {}, sizeof(vertices[0]) * vertices.size(),
+        vk::BufferUsageFlagBits::eVertexBuffer, vk::SharingMode::eExclusive);
+    // the vertex buffer should now be available for rendering until the end of
+    // the program and does not depend on the swapchain
+    vertexBuffer = vk::raii::Buffer(device, vertexBufferInfo);
+
+    // this returns:
+    // size - size of required memory in bytes
+    // alignment - where the buffer begins allocation in memory
+    // memoryTypeBits - bit field of memory types that are suitable for the
+    // buffer
+    vk::MemoryRequirements memRequirements =
+        vertexBuffer.getMemoryRequirements();
+  };
+
+  uint32_t findMemoryType(uint32_t typeFilter,
+                          vk::MemoryPropertyFlags properties) {
+    // has memoryTypes and memoryHeaps
+    // memoryHeaps are different memory resources, like VRAM and swap space in
+    // RAM for when VRAM runs out
+    vk::PhysicalDeviceMemoryProperties memProperties =
+        physicalDevice.getMemoryProperties();
+    return 1;
   }
 };
 

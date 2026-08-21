@@ -15,13 +15,14 @@ BUILD_PATH= build
 
 UTILS=utils
 TRIANGLE=helloTriangleApp
+T_SHADER=hello_t
 
 PROGS=$(UTILS) $(TRIANGLE)
 
 all: $(PROGS)
 
 $(TRIANGLE): $(UTILS)
-	$(SLANG) $(SHADER_SRC)/shaders.slang $(SLANG_ARGS) $(ENTRY_POINTS) -o $(BUILD_PATH)/$(SHADER_SRC).spv
+	$(SLANG) $(SHADER_SRC)/$(T_SHADER).slang $(SLANG_ARGS) $(ENTRY_POINTS) -o $(BUILD_PATH)/$(T_SHADER).spv
 	$(CC) $(APPS_PATH)/$(TRIANGLE).cpp $(BUILD_PATH)/$(UTILS).o $(ARGS) $(BUILD_PATH)/$(TRIANGLE).out
 
 $(UTILS): $(BUILD_PATH)
