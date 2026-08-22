@@ -99,6 +99,7 @@ private:
   vk::raii::Pipeline graphicsPipeline = nullptr;
   vk::raii::CommandPool commandPool = nullptr;
   vk::raii::Buffer vertexBuffer = nullptr;
+  vk::raii::DeviceMemory vertexBufferMemory = nullptr;
   std::vector<vk::raii::CommandBuffer> commandBuffers;
 
   // semaphores and fences used for synchronization
@@ -444,7 +445,7 @@ private:
   }
 
   void createGraphicsPipeline() {
-    auto shaderCode = readFile("hello_t.spv");
+    auto shaderCode = readFile("./build/hello_t.spv");
     auto shaderModule = createShaderModule(shaderCode);
 
     vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
@@ -628,12 +629,18 @@ private:
     commandBuffers[frameIndex].beginRendering(renderingInfo);
     commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics,
                                             *graphicsPipeline);
+
     commandBuffers[frameIndex].setViewport(
         0,
         vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width),
                      static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
     commandBuffers[frameIndex].setScissor(
         0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
+
+    commandBuffers[frameIndex].bindVertexBuffers(0, *vertexBuffer, {0});
+
+    commandBuffers[frameIndex].draw(static_cast<uint32_t>(vertices.size()), 1,
+                                    0, 0);
 
     int vertexCount = 3;
     int instancedRendering = 1; // not using instanced rendering
@@ -818,6 +825,27 @@ private:
     // buffer
     vk::MemoryRequirements memRequirements =
         vertexBuffer.getMemoryRequirements();
+
+    uint32_t memoryTypes =
+        findMemoryType(memRequirements.memoryTypeBits,
+                       vk::MemoryPropertyFlagBits::eHostVisible |
+                           vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    vk::MemoryAllocateInfo memoryAllocateInfo(memRequirements.size,
+                                              memoryTypes);
+    vertexBufferMemory = vk::raii::DeviceMemory(device, memoryAllocateInfo);
+
+    // if the alloc was successfull, the memory can be associated
+    // memoryOffset parameter (0) indicates where the data would start inside
+    // the buffer, but since this buffer is specific for vertex data, it doens't
+    // need an offset. If it is other than 0, it needs to be divisible by
+    // memRequirements.alignment
+    vertexBuffer.bindMemory(*vertexBufferMemory, 0);
+
+    // to copy the vertex data to the buffer we need:
+    void *data = vertexBufferMemory.mapMemory(0, vertexBufferInfo.size);
+    memcpy(data, vertices.data(), vertexBufferInfo.size);
+    vertexBufferMemory.unmapMemory();
   };
 
   uint32_t findMemoryType(uint32_t typeFilter,
