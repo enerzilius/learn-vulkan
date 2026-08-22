@@ -827,7 +827,20 @@ private:
     // RAM for when VRAM runs out
     vk::PhysicalDeviceMemoryProperties memProperties =
         physicalDevice.getMemoryProperties();
-    return 1;
+
+    // typeFilter is used to specify the bit field of memory types that are
+    // suitable
+    // so, we can find the index of one of them and checking if the
+    // corresponding bit is set to 1
+    // we also need to check if memory can be written by the CPU
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+      if ((typeFilter & (1 << i)) &&
+          (memProperties.memoryTypes[i].propertyFlags & properties) ==
+              properties)
+        return i;
+    }
+
+    throw std::runtime_error("failed to find suitable memory type!");
   }
 };
 
