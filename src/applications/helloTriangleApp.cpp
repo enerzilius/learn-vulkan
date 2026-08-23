@@ -66,7 +66,7 @@ constexpr uint32_t HEIGHT = 600;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
 const std::vector<Vertex> vertices = {{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-                                      {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+                                      {{0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}},
                                       {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
 
 class HelloTriangleApp {
@@ -811,41 +811,24 @@ private:
   void createVertexBuffer() {
     // buffer specifically made to store the vertex data (indicated by the usage
     // parameter)
-    vk::BufferCreateInfo vertexBufferInfo(
-        {}, sizeof(vertices[0]) * vertices.size(),
-        vk::BufferUsageFlagBits::eVertexBuffer, vk::SharingMode::eExclusive);
-    // the vertex buffer should now be available for rendering until the end of
-    // the program and does not depend on the swapchain
-    vertexBuffer = vk::raii::Buffer(device, vertexBufferInfo);
-
-    // this returns:
-    // size - size of required memory in bytes
-    // alignment - where the buffer begins allocation in memory
-    // memoryTypeBits - bit field of memory types that are suitable for the
-    // buffer
-    vk::MemoryRequirements memRequirements =
-        vertexBuffer.getMemoryRequirements();
-
-    uint32_t memoryTypes =
-        findMemoryType(memRequirements.memoryTypeBits,
-                       vk::MemoryPropertyFlagBits::eHostVisible |
-                           vk::MemoryPropertyFlagBits::eHostCoherent);
-
-    vk::MemoryAllocateInfo memoryAllocateInfo(memRequirements.size,
-                                              memoryTypes);
-    vertexBufferMemory = vk::raii::DeviceMemory(device, memoryAllocateInfo);
-
-    // if the alloc was successfull, the memory can be associated
-    // memoryOffset parameter (0) indicates where the data would start inside
-    // the buffer, but since this buffer is specific for vertex data, it doens't
-    // need an offset. If it is other than 0, it needs to be divisible by
-    // memRequirements.alignment
-    vertexBuffer.bindMemory(*vertexBufferMemory, 0);
+    vk::DeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+    auto [stagingBuffer, stagingBufferMemory] =
+        createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc,
+                     vk::MemoryPropertyFlagBits::eHostVisible |
+                         vk::MemoryPropertyFlagBits::eHostCoherent);
 
     // to copy the vertex data to the buffer we need:
-    void *data = vertexBufferMemory.mapMemory(0, vertexBufferInfo.size);
-    memcpy(data, vertices.data(), vertexBufferInfo.size);
-    vertexBufferMemory.unmapMemory();
+    void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
+    memcpy(dataStaging, vertices.data(), bufferSize);
+    stagingBufferMemory.unmapMemory();
+
+    std::tie(vertexBuffer, vertexBufferMemory) =
+        createBuffer(bufferSize,
+                     vk::BufferUsageFlagBits::eVertexBuffer |
+                         vk::BufferUsageFlagBits::eTransferDst,
+                     vk::MemoryPropertyFlagBits::eDeviceLocal);
+    // finally moving vertexData to the GPU local buffer
+    copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
   };
 
   uint32_t findMemoryType(uint32_t typeFilter,
@@ -869,6 +852,73 @@ private:
     }
 
     throw std::runtime_error("failed to find suitable memory type!");
+  }
+
+  // helper function
+  std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>
+  createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
+               vk::MemoryPropertyFlags properties) {
+    vk::BufferCreateInfo bufferInfo({}, sizeof(vertices[0]) * vertices.size(),
+                                    vk::BufferUsageFlagBits::eVertexBuffer,
+                                    vk::SharingMode::eExclusive);
+    vk::raii::Buffer buffer = vk::raii::Buffer(device, bufferInfo);
+
+    // this returns:
+    // size - size of required memory in bytes
+    // alignment - where the buffer begins allocation in memory
+    // memoryTypeBits - bit field of memory types that are suitable for the
+    // buffer
+    vk::MemoryRequirements memRequirements = buffer.getMemoryRequirements();
+
+    uint32_t memoryTypes =
+        findMemoryType(memRequirements.memoryTypeBits,
+                       vk::MemoryPropertyFlagBits::eHostVisible |
+                           vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    vk::MemoryAllocateInfo memoryAllocateInfo(memRequirements.size,
+                                              memoryTypes);
+    vk::raii::DeviceMemory bufferMemory =
+        vk::raii::DeviceMemory(device, memoryAllocateInfo);
+
+    // if the alloc was successfull, the memory can be associated
+    // memoryOffset parameter (0) indicates where the data would start inside
+    // the buffer, but since this buffer is specific for vertex data, it doens't
+    // need an offset. If it is other than 0, it needs to be divisible by
+    // memRequirements.alignment
+    buffer.bindMemory(*bufferMemory, 0);
+
+    // std::move here turns it into a reference so it casn be moved instead of
+    // copied
+    return {std::move(buffer), std::move(bufferMemory)};
+  }
+
+  void copyBuffer(vk::raii::Buffer &srcBuffer, vk::raii::Buffer &dstBuffer,
+                  vk::DeviceSize size) {
+    // since memory transfer operations are done using command buffers, we need
+    // to alloc a temp command buffer
+    vk::CommandBufferAllocateInfo allocInfo(
+        commandPool, vk::CommandBufferLevel::ePrimary, 1);
+    vk::raii::CommandBuffer commandCopyBuffer =
+        std::move(device.allocateCommandBuffers(allocInfo).front());
+
+    // start recording thr commandBuffer
+    // since the buffer will only be used once, eOneTimeSubmit tells tgat itent
+    vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo(
+        vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+    commandCopyBuffer.begin(beginInfo);
+
+    commandCopyBuffer.copyBuffer(*srcBuffer, *dstBuffer,
+                                 vk::BufferCopy(0, 0, size));
+
+    commandCopyBuffer.end();
+
+    vk::SubmitInfo submitInfo{};
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &*commandCopyBuffer;
+    graphicsQueue.submit(submitInfo, nullptr);
+    // we could use waitFoFences, which would allow for multiple transfers
+    // waitIdle is simpler though
+    graphicsQueue.waitIdle();
   }
 };
 
