@@ -24,29 +24,7 @@ import vulkan_hpp;
 // vector types + other math stuff
 #include <glm/glm.hpp>
 
-struct Vertex {
-  glm::vec2 pos;
-  glm::vec3 color;
-
-  // this is needed to tell Vulkan how to pass this data format to the shader
-  static vk::VertexInputBindingDescription getBindingDescription() {
-    auto bindDesc = vk::VertexInputBindingDescription(
-        0, sizeof(Vertex), vk::VertexInputRate::eVertex);
-    return bindDesc;
-  }
-
-  // second structure to describe vertex input handling
-  static std::array<vk::VertexInputAttributeDescription, 2>
-  getAttributeDescriptions() {
-    // binding: tells vulkan which binding the vertex data comes from
-    // format: type (and size) of data of the attribute - S:signed U:unsigned
-    auto posAttributes = vk::VertexInputAttributeDescription(
-        0, 0, vk::Format::eR32G32Sfloat, offsetof(Vertex, pos));
-    auto colorAttributes = vk::VertexInputAttributeDescription(
-        1, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, color));
-    return {posAttributes, colorAttributes};
-  }
-};
+#include "../class/vertex.cpp"
 
 const std::vector<char const *> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
@@ -61,13 +39,16 @@ constexpr bool enableValidationLayers = true;
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
 
-// 2 is used so the CPU doesn't get too ahead of the GPU and doesn't creeate too
+// 2 is used so the CPU doesn't get too ahead of the GPU and doesn't create too
 // much latency
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+const std::vector<Vertex> vertices = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+                                      {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+                                      {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+                                      {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
 
-const std::vector<Vertex> vertices = {{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-                                      {{0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}},
-                                      {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
+// using uint16_t because we have less than 65545 unique vertices
+const std::vector<uint16_t> indices = {0, 1, 2, 2, 3, 0};
 
 class HelloTriangleApp {
 public:
@@ -100,6 +81,8 @@ private:
   vk::raii::CommandPool commandPool = nullptr;
   vk::raii::Buffer vertexBuffer = nullptr;
   vk::raii::DeviceMemory vertexBufferMemory = nullptr;
+  vk::raii::Buffer indexBuffer = nullptr;
+  vk::raii::DeviceMemory indexBufferMemory = nullptr;
   std::vector<vk::raii::CommandBuffer> commandBuffers;
 
   // semaphores and fences used for synchronization
@@ -131,6 +114,7 @@ private:
     createGraphicsPipeline();
     createCommandPool();
     createVertexBuffer();
+    createIndexBuffer();
     createComandBuffers();
     createSyncObjects();
   }
@@ -642,15 +626,20 @@ private:
     commandBuffers[frameIndex].draw(static_cast<uint32_t>(vertices.size()), 1,
                                     0, 0);
 
-    int vertexCount = 3;
+    commandBuffers[frameIndex].bindVertexBuffers(0, *vertexBuffer, {0});
+    commandBuffers[frameIndex].bindIndexBuffer(*indexBuffer, 0,
+                                               vk::IndexType::eUint16);
+
     int instancedRendering = 1; // not using instanced rendering
     // offset of vertexBuffer
     // defines the lowest value of SV_vertexID
     int firstVertex = 0;
     // offset for instanced rendering, defines lowest value of SV_InstanceID
     int firstInstance = 0;
-    commandBuffers[frameIndex].draw(vertexCount, instancedRendering,
-                                    firstVertex, firstInstance);
+    int vertexOffset = 0;
+    commandBuffers[frameIndex].drawIndexed(
+        static_cast<uint32_t>(indices.size()), instancedRendering, firstVertex,
+        vertexOffset, firstInstance);
 
     commandBuffers[frameIndex].endRendering();
 
@@ -919,6 +908,31 @@ private:
     // we could use waitFoFences, which would allow for multiple transfers
     // waitIdle is simpler though
     graphicsQueue.waitIdle();
+  }
+
+  // this function is nearly identical to createVertexBuffer, with 2
+  // differences: bufferSize is now number of indices * uint16_t
+  // The usage should be vk::BufferUsageFlagBits:eIndexBuffer instead of
+  // eVertexBuffer
+  void createIndexBuffer() {
+    vk::DeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+
+    auto [stagingBuffer, stagingBufferMemory] =
+        createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc,
+                     vk::MemoryPropertyFlagBits::eHostVisible |
+                         vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    void *data = stagingBufferMemory.mapMemory(0, bufferSize);
+    memcpy(data, indices.data(), (size_t)bufferSize);
+    stagingBufferMemory.unmapMemory();
+
+    std::tie(indexBuffer, indexBufferMemory) =
+        createBuffer(bufferSize,
+                     vk::BufferUsageFlagBits::eIndexBuffer |
+                         vk::BufferUsageFlagBits::eTransferDst,
+                     vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+    copyBuffer(stagingBuffer, indexBuffer, bufferSize);
   }
 };
 
