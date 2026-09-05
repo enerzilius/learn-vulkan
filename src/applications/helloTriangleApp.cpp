@@ -23,7 +23,11 @@ import vulkan_hpp;
 
 // vector types + other math stuff
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
+#include <chrono>
+
+#include "../class/UniformBufferObject.cpp"
 #include "../class/vertex.cpp"
 
 const std::vector<char const *> validationLayers = {
@@ -79,11 +83,17 @@ private:
   vk::raii::PipelineLayout pipelineLayout = nullptr;
   vk::raii::Pipeline graphicsPipeline = nullptr;
   vk::raii::CommandPool commandPool = nullptr;
+
   vk::raii::Buffer vertexBuffer = nullptr;
   vk::raii::DeviceMemory vertexBufferMemory = nullptr;
+
   vk::raii::Buffer indexBuffer = nullptr;
   vk::raii::DeviceMemory indexBufferMemory = nullptr;
   std::vector<vk::raii::CommandBuffer> commandBuffers;
+
+  std::vector<vk::raii::Buffer> uniformBuffers;
+  std::vector<vk::raii::DeviceMemory> uniformBuffersMemory;
+  std::vector<void *> uniformBuffersMapped;
 
   // semaphores and fences used for synchronization
   std::vector<vk::raii::Semaphore> presentCompleteSemaphores;
@@ -111,10 +121,12 @@ private:
     createLogicalDevice();
     createSwapChain();
     createImageViews();
+    createDescriptorSetLayout();
     createGraphicsPipeline();
     createCommandPool();
     createVertexBuffer();
     createIndexBuffer();
+    createUniformsBuffer();
     createComandBuffers();
     createSyncObjects();
   }
@@ -714,6 +726,8 @@ private:
       throw std::runtime_error("Failed to acquire swapchain image :(");
     }
 
+    updateUniformBuffer(frameIndex);
+
     // only reset fences if submitting work: avoids deadlock
     device.resetFences(*inFlightFences[frameIndex]);
 
@@ -848,8 +862,7 @@ private:
   createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
                vk::MemoryPropertyFlags properties) {
     vk::BufferCreateInfo bufferInfo({}, sizeof(vertices[0]) * vertices.size(),
-                                    vk::BufferUsageFlagBits::eVertexBuffer,
-                                    vk::SharingMode::eExclusive);
+                                    usage, vk::SharingMode::eExclusive);
     vk::raii::Buffer buffer = vk::raii::Buffer(device, bufferInfo);
 
     // this returns:
@@ -933,6 +946,54 @@ private:
                      vk::MemoryPropertyFlagBits::eDeviceLocal);
 
     copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+  }
+
+  // provides details about every descriptor binding used in the shaders
+  void createDescriptorSetLayout() {
+    vk::DescriptorSetLayoutBinding uboLayoutBinding(
+        0, vk::DescriptorType::eUniformBuffer, 1,
+        vk::ShaderStageFlagBits::eVertex);
+  }
+
+  void createUniformsBuffer() {
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+      vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
+      auto [buffer, bufferMem] =
+          createBuffer(bufferSize, vk::BufferUsageFlagBits::eUniformBuffer,
+                       vk::MemoryPropertyFlagBits::eHostVisible |
+                           vk::MemoryPropertyFlagBits::eHostCoherent);
+      uniformBuffers.emplace_back(std::move(buffer));
+      uniformBuffersMemory.emplace_back(std::move(bufferMem));
+      uniformBuffersMapped.emplace_back(
+          uniformBuffersMemory.back().mapMemory(0, bufferSize));
+    }
+  }
+
+  void updateUniformBuffer(uint32_t frameIndex) {
+    // rotate 90 degrees / second
+    static auto startTime = std::chrono::high_resolution_clock::now();
+
+    auto currentTime = std::chrono::high_resolution_clock::now();
+    float time = std::chrono::duration<float, std::chrono::seconds::period>(
+                     currentTime - startTime)
+                     .count();
+
+    UniformBufferObject ubo{};
+    ubo.model = rotate(glm::mat4(1.0f), time * glm::radians(90.0f),
+                       glm::vec3(0.0f, 0.0f, 1.0f));
+
+    ubo.view = lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
+                      glm::vec3(0.0f, 0.0f, 1.0f));
+
+    ubo.proj = glm::perspective(glm::radians(45.0f),
+                                static_cast<float>(swapChainExtent.width) /
+                                    static_cast<float>(swapChainExtent.height),
+                                0.1f, 10.0f);
+    // inverting the y axis because glm was made for OpenGL, which has inverted
+    // y axis
+    ubo.proj[1][1] *= -1;
+
+    memcpy(uniformBuffersMapped[frameIndex], &ubo, sizeof(ubo));
   }
 };
 
