@@ -18,9 +18,9 @@ import vulkan_hpp;
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <print>
 #include <stdexcept>
 #include <vector>
-
 // vector types + other math stuff
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -103,6 +103,10 @@ private:
 
   bool framebufferResized = false;
 
+  vk::raii::DescriptorPool descriptorPool = nullptr;
+  vk::raii::DescriptorSetLayout descriptorSetLayout = nullptr;
+  std::vector<vk::raii::DescriptorSet> descriptorSets;
+
   void initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -127,6 +131,8 @@ private:
     createVertexBuffer();
     createIndexBuffer();
     createUniformsBuffer();
+    createDescriptorPool();
+    createDescriptorSets();
     createComandBuffers();
     createSyncObjects();
   }
@@ -495,7 +501,9 @@ private:
     rasterizer.rasterizerDiscardEnable = vk::False;
     rasterizer.polygonMode = vk::PolygonMode::eFill;
     rasterizer.cullMode = vk::CullModeFlagBits::eBack;
-    rasterizer.frontFace = vk::FrontFace::eClockwise;
+    rasterizer.frontFace =
+        vk::FrontFace::eCounterClockwise; // we need ccw because we are
+                                          // inverting the y axis
     rasterizer.depthBiasEnable = vk::False;
     rasterizer.lineWidth = 1.0f;
 
@@ -527,12 +535,6 @@ private:
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
 
-    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.setLayoutCount = 0;
-    pipelineLayoutInfo.pushConstantRangeCount = 0;
-
-    pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
-
     vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo{};
     graphicsPipelineCreateInfo.stageCount = 2;
     graphicsPipelineCreateInfo.pStages = shaderStages;
@@ -550,6 +552,12 @@ private:
     pipelineRenderingCreateInfo.colorAttachmentCount = 1;
     pipelineRenderingCreateInfo.pColorAttachmentFormats =
         &swapChainSurfaceFormat.format;
+
+    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.setLayoutCount = 0;
+    pipelineLayoutInfo.pSetLayouts = &*descriptorSetLayout,
+    pipelineLayoutInfo.pushConstantRangeCount = 0;
+    pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
 
     vk::StructureChain<vk::GraphicsPipelineCreateInfo,
                        vk::PipelineRenderingCreateInfo>
@@ -642,7 +650,12 @@ private:
     commandBuffers[frameIndex].bindIndexBuffer(*indexBuffer, 0,
                                                vk::IndexType::eUint16);
 
-    int instancedRendering = 1; // not using instanced rendering
+    commandBuffers[frameIndex].bindDescriptorSets(
+        vk::PipelineBindPoint::eGraphics, pipelineLayout, 0,
+        *descriptorSets[frameIndex], nullptr);
+
+    int instancedRendering = 1; // not using instanced rendering (draw
+                                // identical/similar objects with one draw call)
     // offset of vertexBuffer
     // defines the lowest value of SV_vertexID
     int firstVertex = 0;
@@ -953,6 +966,8 @@ private:
     vk::DescriptorSetLayoutBinding uboLayoutBinding(
         0, vk::DescriptorType::eUniformBuffer, 1,
         vk::ShaderStageFlagBits::eVertex);
+    vk::DescriptorSetLayoutCreateInfo layoutInfo({}, 1, &uboLayoutBinding);
+    descriptorSetLayout = vk::raii::DescriptorSetLayout(device, layoutInfo);
   }
 
   void createUniformsBuffer() {
@@ -994,6 +1009,39 @@ private:
     ubo.proj[1][1] *= -1;
 
     memcpy(uniformBuffersMapped[frameIndex], &ubo, sizeof(ubo));
+  }
+
+  void createDescriptorPool() {
+    // describing what descriptor types will be used
+    vk::DescriptorPoolSize poolSize(vk::DescriptorType::eUniformBuffer,
+                                    MAX_FRAMES_IN_FLIGHT);
+
+    // one of the descriptors will be allocated each frame
+    vk::DescriptorPoolCreateInfo poolInfo(
+        vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+        MAX_FRAMES_IN_FLIGHT, 1, &poolSize);
+
+    descriptorPool = vk::raii::DescriptorPool(device, poolInfo);
+  }
+
+  void createDescriptorSets() {
+    // to allocate the set, we need to specify the pool, number of descriptor
+    // sets and the layout
+    std::vector<vk::DescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT,
+                                                 *descriptorSetLayout);
+    vk::DescriptorSetAllocateInfo allocInfo(
+        descriptorPool, static_cast<uint32_t>(layouts.size()), layouts.data());
+    descriptorSets = device.allocateDescriptorSets(allocInfo);
+
+    // populating the descriptor
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+      // this structure specifies the buffer and the region with the data
+      vk::DescriptorBufferInfo bufferInfo(uniformBuffers[i], 0, vk::WholeSize);
+      vk::WriteDescriptorSet descriptorWrite(descriptorSets[i], 0, 0, 1,
+                                             vk::DescriptorType::eUniformBuffer,
+                                             {}, &bufferInfo);
+      device.updateDescriptorSets(descriptorWrite, {});
+    }
   }
 };
 
