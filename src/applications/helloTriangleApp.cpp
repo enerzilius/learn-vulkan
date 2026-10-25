@@ -18,7 +18,6 @@ import vulkan_hpp;
 #include <cstdlib>
 #include <iostream>
 #include <limits>
-#include <print>
 #include <stdexcept>
 #include <vector>
 // vector types + other math stuff
@@ -27,8 +26,13 @@ import vulkan_hpp;
 
 #include <chrono>
 
-#include "../class/UniformBufferObject.cpp"
 #include "../class/vertex.cpp"
+
+struct UniformBufferObject {
+  glm::mat4 model;
+  glm::mat4 view;
+  glm::mat4 proj;
+};
 
 const std::vector<char const *> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
@@ -64,13 +68,14 @@ public:
   }
 
 private:
+  vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
   vk::raii::Context context;
   vk::raii::Instance instance = nullptr;
   vk::raii::SurfaceKHR surface = nullptr;
   vk::raii::PhysicalDevice physicalDevice = nullptr;
   vk::raii::Device device = nullptr;
   uint32_t queueIndex = ~0;
-  GLFWwindow *window;
+  GLFWwindow *window = nullptr;
   vk::raii::Queue graphicsQueue = nullptr;
   std::vector<const char *> requiredDeviceExtension = {
       vk::KHRSwapchainExtensionName};
@@ -119,7 +124,7 @@ private:
 
   void initVulkan() {
     createInstance();
-    // setupDebugMessenger();
+    setupDebugMessenger();
     createSurface();
     pickPhysicalDevice();
     createLogicalDevice();
@@ -151,6 +156,23 @@ private:
 
     glfwDestroyWindow(window);
     glfwTerminate();
+  }
+
+  void setupDebugMessenger() {
+    if (!enableValidationLayers)
+      return;
+
+    vk::DebugUtilsMessageSeverityFlagsEXT severityFlags(
+        vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
+        vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
+    vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags(
+        vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
+        vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
+        vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation);
+    vk::DebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCreateInfoEXT(
+        {}, severityFlags, messageTypeFlags, &debugCallback);
+    debugMessenger =
+        instance.createDebugUtilsMessengerEXT(debugUtilsMessengerCreateInfoEXT);
   }
 
   void createInstance() {
@@ -221,13 +243,20 @@ private:
   bool isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) {
     // Check if the physicalDevice supports the Vulkan 1.3 API version
     bool supportsVulkan1_3 =
-        physicalDevice.getProperties().apiVersion >= vk::ApiVersion13;
+        physicalDevice.getProperties().apiVersion >= VK_API_VERSION_1_3;
 
-    // Check if any of the queue families support graphics operations
+    // Check if any of the queue families support both graphics and presentation
+    // to our surface
     auto queueFamilies = physicalDevice.getQueueFamilyProperties();
-    bool supportsGraphics =
-        std::ranges::any_of(queueFamilies, [](auto const &qfp) {
-          return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics);
+    uint32_t qfpIndex = 0;
+    bool supportsGraphicsAndPresent = std::ranges::any_of(
+        queueFamilies, [&physicalDevice, &surface = this->surface,
+                        &qfpIndex](auto const &qfp) {
+          bool const suitable =
+              (qfp.queueFlags & vk::QueueFlagBits::eGraphics) &&
+              physicalDevice.getSurfaceSupportKHR(qfpIndex, *surface);
+          qfpIndex++;
+          return suitable;
         });
 
     // Check if all required physicalDevice extensions are available
@@ -244,20 +273,24 @@ private:
               });
         });
 
-    // Check if the physicalDevice supports the required features (dynamic
-    // rendering and extended dynamic state)
+    // Check if the physicalDevice supports the required features
     auto features = physicalDevice.template getFeatures2<
-        vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features,
+        vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features,
+        vk::PhysicalDeviceVulkan13Features,
         vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
     bool supportsRequiredFeatures =
+        features.template get<vk::PhysicalDeviceVulkan11Features>()
+            .shaderDrawParameters &&
         features.template get<vk::PhysicalDeviceVulkan13Features>()
             .dynamicRendering &&
+        features.template get<vk::PhysicalDeviceVulkan13Features>()
+            .synchronization2 &&
         features
             .template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>()
             .extendedDynamicState;
 
     // Return true if the physicalDevice meets all the criteria
-    return supportsVulkan1_3 && supportsGraphics &&
+    return supportsVulkan1_3 && supportsGraphicsAndPresent &&
            supportsAllRequiredExtensions && supportsRequiredFeatures;
   }
 
@@ -554,7 +587,7 @@ private:
         &swapChainSurfaceFormat.format;
 
     vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.setLayoutCount = 0;
+    pipelineLayoutInfo.setLayoutCount = 1;
     pipelineLayoutInfo.pSetLayouts = &*descriptorSetLayout,
     pipelineLayoutInfo.pushConstantRangeCount = 0;
     pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
@@ -589,6 +622,22 @@ private:
     poolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
     poolInfo.queueFamilyIndex = queueIndex;
     commandPool = vk::raii::CommandPool(device, poolInfo);
+  }
+
+  std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>
+  createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
+               vk::MemoryPropertyFlags properties) {
+    vk::BufferCreateInfo bufferInfo({}, size, usage,
+                                    vk::SharingMode::eExclusive);
+    vk::raii::Buffer buffer = vk::raii::Buffer(device, bufferInfo);
+    vk::MemoryRequirements memRequirements = buffer.getMemoryRequirements();
+    vk::MemoryAllocateInfo allocInfo(
+        memRequirements.size,
+        findMemoryType(memRequirements.memoryTypeBits, properties));
+    vk::raii::DeviceMemory bufferMemory =
+        vk::raii::DeviceMemory(device, allocInfo);
+    buffer.bindMemory(*bufferMemory, 0);
+    return {std::move(buffer), std::move(bufferMemory)};
   }
 
   // creating the command buffers for each frame rendered in flight
@@ -641,12 +690,6 @@ private:
     commandBuffers[frameIndex].setScissor(
         0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
 
-    commandBuffers[frameIndex].bindVertexBuffers(0, *vertexBuffer, {0});
-
-    commandBuffers[frameIndex].draw(static_cast<uint32_t>(vertices.size()), 1,
-                                    0, 0);
-
-    commandBuffers[frameIndex].bindVertexBuffers(0, *vertexBuffer, {0});
     commandBuffers[frameIndex].bindIndexBuffer(*indexBuffer, 0,
                                                vk::IndexType::eUint16);
 
@@ -658,12 +701,12 @@ private:
                                 // identical/similar objects with one draw call)
     // offset of vertexBuffer
     // defines the lowest value of SV_vertexID
-    int firstVertex = 0;
+    int firstIndex = 0;
     // offset for instanced rendering, defines lowest value of SV_InstanceID
     int firstInstance = 0;
     int vertexOffset = 0;
     commandBuffers[frameIndex].drawIndexed(
-        static_cast<uint32_t>(indices.size()), instancedRendering, firstVertex,
+        static_cast<uint32_t>(indices.size()), instancedRendering, firstIndex,
         vertexOffset, firstInstance);
 
     commandBuffers[frameIndex].endRendering();
@@ -752,7 +795,7 @@ private:
     const vk::SubmitInfo submitInfo(1, &*presentCompleteSemaphores[frameIndex],
                                     &waitDestinationStageMask, 1,
                                     &*commandBuffers[frameIndex], 1,
-                                    &*renderFinishedSemaphores[frameIndex]);
+                                    &*renderFinishedSemaphores[imageIndex]);
     graphicsQueue.submit(submitInfo, *inFlightFences[frameIndex]);
 
     const vk::PresentInfoKHR presentInfoKHR(
@@ -870,43 +913,6 @@ private:
     throw std::runtime_error("failed to find suitable memory type!");
   }
 
-  // helper function
-  std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>
-  createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
-               vk::MemoryPropertyFlags properties) {
-    vk::BufferCreateInfo bufferInfo({}, sizeof(vertices[0]) * vertices.size(),
-                                    usage, vk::SharingMode::eExclusive);
-    vk::raii::Buffer buffer = vk::raii::Buffer(device, bufferInfo);
-
-    // this returns:
-    // size - size of required memory in bytes
-    // alignment - where the buffer begins allocation in memory
-    // memoryTypeBits - bit field of memory types that are suitable for the
-    // buffer
-    vk::MemoryRequirements memRequirements = buffer.getMemoryRequirements();
-
-    uint32_t memoryTypes =
-        findMemoryType(memRequirements.memoryTypeBits,
-                       vk::MemoryPropertyFlagBits::eHostVisible |
-                           vk::MemoryPropertyFlagBits::eHostCoherent);
-
-    vk::MemoryAllocateInfo memoryAllocateInfo(memRequirements.size,
-                                              memoryTypes);
-    vk::raii::DeviceMemory bufferMemory =
-        vk::raii::DeviceMemory(device, memoryAllocateInfo);
-
-    // if the alloc was successfull, the memory can be associated
-    // memoryOffset parameter (0) indicates where the data would start inside
-    // the buffer, but since this buffer is specific for vertex data, it doens't
-    // need an offset. If it is other than 0, it needs to be divisible by
-    // memRequirements.alignment
-    buffer.bindMemory(*bufferMemory, 0);
-
-    // std::move here turns it into a reference so it casn be moved instead of
-    // copied
-    return {std::move(buffer), std::move(bufferMemory)};
-  }
-
   void copyBuffer(vk::raii::Buffer &srcBuffer, vk::raii::Buffer &dstBuffer,
                   vk::DeviceSize size) {
     // since memory transfer operations are done using command buffers, we need
@@ -1004,10 +1010,6 @@ private:
                                 static_cast<float>(swapChainExtent.width) /
                                     static_cast<float>(swapChainExtent.height),
                                 0.1f, 10.0f);
-    // inverting the y axis because glm was made for OpenGL, which has inverted
-    // y axis
-    ubo.proj[1][1] *= -1;
-
     memcpy(uniformBuffersMapped[frameIndex], &ubo, sizeof(ubo));
   }
 
@@ -1042,6 +1044,19 @@ private:
                                              {}, &bufferInfo);
       device.updateDescriptorSets(descriptorWrite, {});
     }
+  }
+
+  static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(
+      vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
+      vk::DebugUtilsMessageTypeFlagsEXT type,
+      const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData, void *) {
+    if (severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eError ||
+        severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning) {
+      std::cerr << "validation layer: type " << to_string(type)
+                << " msg: " << pCallbackData->pMessage << std::endl;
+    }
+
+    return vk::False;
   }
 };
 
