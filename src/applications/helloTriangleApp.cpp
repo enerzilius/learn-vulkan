@@ -34,9 +34,6 @@ struct UniformBufferObject {
   glm::mat4 proj;
 };
 
-const std::vector<char const *> validationLayers = {
-    "VK_LAYER_KHRONOS_validation"};
-
 #ifdef NDEBUG
 constexpr bool enableValidationLayers = false;
 #else
@@ -50,6 +47,10 @@ constexpr uint32_t HEIGHT = 600;
 // 2 is used so the CPU doesn't get too ahead of the GPU and doesn't create too
 // much latency
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+
+const std::vector<char const *> validationLayers = {
+    "VK_LAYER_KHRONOS_validation"};
+
 const std::vector<Vertex> vertices = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
                                       {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
                                       {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
@@ -237,6 +238,10 @@ private:
         glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
     std::vector extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+    if (enableValidationLayers) {
+      extensions.push_back(vk::EXTDebugUtilsExtensionName);
+    }
+
     return extensions;
   }
 
@@ -502,41 +507,20 @@ private:
         static_cast<uint32_t>(attributeDescriptions.size());
     vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
-    vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo,
-                                                        fragShaderStageInfo};
-
-    std::vector<vk::DynamicState> dynamicStates = {vk::DynamicState::eViewport,
-                                                   vk::DynamicState::eScissor};
-    vk::PipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.dynamicStateCount =
-        static_cast<uint32_t>(dynamicStates.size());
-    dynamicState.pDynamicStates = dynamicStates.data();
-
     vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
 
-    vk::Viewport viewport{0.0f,
-                          0.0f,
-                          static_cast<float>(swapChainExtent.width),
-                          static_cast<float>(swapChainExtent.height),
-                          0.0f,
-                          1.0f};
-
-    vk::Rect2D scissor{vk::Offset2D{0, 0}, swapChainExtent};
-
     vk::PipelineViewportStateCreateInfo viewportState{};
     viewportState.viewportCount = 1;
-    viewportState.pViewports = &viewport, viewportState.scissorCount = 1;
-    viewportState.pScissors = &scissor;
+    viewportState.scissorCount = 1;
 
     vk::PipelineRasterizationStateCreateInfo rasterizer{};
     rasterizer.depthClampEnable = vk::False;
     rasterizer.rasterizerDiscardEnable = vk::False;
     rasterizer.polygonMode = vk::PolygonMode::eFill;
     rasterizer.cullMode = vk::CullModeFlagBits::eBack;
-    rasterizer.frontFace =
-        vk::FrontFace::eCounterClockwise; // we need ccw because we are
-                                          // inverting the y axis
+    // ccw is inverting the y axis
+    rasterizer.frontFace = vk::FrontFace::eCounterClockwise;
     rasterizer.depthBiasEnable = vk::False;
     rasterizer.lineWidth = 1.0f;
 
@@ -549,24 +533,36 @@ private:
     colorBlendAttachment.colorWriteMask =
         vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
         vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
-
-    // vk::PipelineColorBlendAttachmentState colorBlendAttachment{
-    //.blendEnable         = vk::True,
-    //.srcColorBlendFactor = vk::BlendFactor::eSrcAlpha,
-    //.dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha,
-    //.colorBlendOp        = vk::BlendOp::eAdd,
-    //.srcAlphaBlendFactor = vk::BlendFactor::eOne,
-    //.dstAlphaBlendFactor = vk::BlendFactor::eZero,
-    //.alphaBlendOp        = vk::BlendOp::eAdd,
-    //.colorWriteMask      = vk::ColorComponentFlagBits::eR |
-    // vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB |
-    // vk::ColorComponentFlagBits::eA};
-
     vk::PipelineColorBlendStateCreateInfo colorBlending{};
     colorBlending.logicOpEnable = vk::False;
     colorBlending.logicOp = vk::LogicOp::eCopy;
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
+
+    std::vector<vk::DynamicState> dynamicStates = {vk::DynamicState::eViewport,
+                                                   vk::DynamicState::eScissor};
+    vk::PipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.dynamicStateCount =
+        static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    vk::Viewport viewport{0.0f,
+                          0.0f,
+                          static_cast<float>(swapChainExtent.width),
+                          static_cast<float>(swapChainExtent.height),
+                          0.0f,
+                          1.0f};
+
+    vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo,
+                                                        fragShaderStageInfo};
+
+    vk::Rect2D scissor{vk::Offset2D{0, 0}, swapChainExtent};
+
+    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &*descriptorSetLayout,
+    pipelineLayoutInfo.pushConstantRangeCount = 0;
+    pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
 
     vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo{};
     graphicsPipelineCreateInfo.stageCount = 2;
@@ -585,12 +581,6 @@ private:
     pipelineRenderingCreateInfo.colorAttachmentCount = 1;
     pipelineRenderingCreateInfo.pColorAttachmentFormats =
         &swapChainSurfaceFormat.format;
-
-    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &*descriptorSetLayout,
-    pipelineLayoutInfo.pushConstantRangeCount = 0;
-    pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
 
     vk::StructureChain<vk::GraphicsPipelineCreateInfo,
                        vk::PipelineRenderingCreateInfo>
@@ -649,6 +639,7 @@ private:
 
   void recordCommandBuffer(uint32_t imageIndex) {
     // starting dynamic rendering
+    auto &commandBuffer = commandBuffers[frameIndex];
     commandBuffers[frameIndex].begin({});
 
     // specifying attachments for rendering
@@ -679,23 +670,28 @@ private:
     renderingInfo.pColorAttachments = &attachmentInfo;
 
     // basic drawing commands
-    commandBuffers[frameIndex].beginRendering(renderingInfo);
-    commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics,
-                                            *graphicsPipeline);
+    commandBuffer.beginRendering(renderingInfo);
+    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                               *graphicsPipeline);
 
-    commandBuffers[frameIndex].setViewport(
+    // Negative height flips Y for Vulkan; see Uniform buffers.
+    commandBuffer.setViewport(
         0,
         vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width),
-                     static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
-    commandBuffers[frameIndex].setScissor(
-        0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
+                     -static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
 
-    commandBuffers[frameIndex].bindIndexBuffer(*indexBuffer, 0,
-                                               vk::IndexType::eUint16);
+    commandBuffer.setScissor(0,
+                             vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
 
-    commandBuffers[frameIndex].bindDescriptorSets(
-        vk::PipelineBindPoint::eGraphics, pipelineLayout, 0,
-        *descriptorSets[frameIndex], nullptr);
+    commandBuffer.bindVertexBuffers(0, *vertexBuffer, {0});
+
+    commandBuffer.bindIndexBuffer(
+        *indexBuffer, 0,
+        vk::IndexTypeValue<decltype(indices)::value_type>::value);
+
+    commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                                     pipelineLayout, 0,
+                                     *descriptorSets[frameIndex], nullptr);
 
     int instancedRendering = 1; // not using instanced rendering (draw
                                 // identical/similar objects with one draw call)
@@ -705,11 +701,11 @@ private:
     // offset for instanced rendering, defines lowest value of SV_InstanceID
     int firstInstance = 0;
     int vertexOffset = 0;
-    commandBuffers[frameIndex].drawIndexed(
-        static_cast<uint32_t>(indices.size()), instancedRendering, firstIndex,
-        vertexOffset, firstInstance);
+    commandBuffer.drawIndexed(static_cast<uint32_t>(indices.size()),
+                              instancedRendering, firstIndex, vertexOffset,
+                              firstInstance);
 
-    commandBuffers[frameIndex].endRendering();
+    commandBuffer.endRendering();
 
     // after rendering, transition the swapchain image to
     // vk::ImageLayout::ePresentSrcKHR so it can eb rendered to the screen
@@ -722,7 +718,7 @@ private:
         vk::PipelineStageFlagBits2::eBottomOfPipe           // dstStage
     );
 
-    commandBuffers[frameIndex].end();
+    commandBuffer.end();
   }
 
   // transitions the image layout to one that can be rendered on
@@ -799,11 +795,11 @@ private:
     graphicsQueue.submit(submitInfo, *inFlightFences[frameIndex]);
 
     const vk::PresentInfoKHR presentInfoKHR(
-        1, &*renderFinishedSemaphores[frameIndex], 1, &*swapChain, &imageIndex);
+        1, &*renderFinishedSemaphores[imageIndex], 1, &*swapChain, &imageIndex);
 
     result = graphicsQueue.presentKHR(presentInfoKHR);
     if ((result == vk::Result::eSuboptimalKHR) ||
-        (result == vk::Result::eErrorOutOfDateKHR)) {
+        (result == vk::Result::eErrorOutOfDateKHR) || framebufferResized) {
       // to ensure semaphores are consistent
       framebufferResized = false;
       recreateSwapChain();
