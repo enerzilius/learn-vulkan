@@ -1,6 +1,7 @@
 #include "vulkan/vulkan.hpp"
 #include <cassert>
 #include <cstddef>
+#include <print>
 #include <vulkan/vulkan_core.h>
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #include <vulkan/vulkan_raii.hpp>
@@ -9,6 +10,7 @@ import vulkan_hpp;
 #endif
 
 #define GLFW_INCLUDE_VULKAN
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <GLFW/glfw3.h>
 
 #include "../utils/utils.h"
@@ -518,7 +520,7 @@ private:
     rasterizer.depthClampEnable = vk::False;
     rasterizer.rasterizerDiscardEnable = vk::False;
     rasterizer.polygonMode = vk::PolygonMode::eFill;
-    rasterizer.cullMode = vk::CullModeFlagBits::eBack;
+    rasterizer.cullMode = vk::CullModeFlagBits::eNone;
     // ccw is inverting the y axis
     rasterizer.frontFace = vk::FrontFace::eCounterClockwise;
     rasterizer.depthBiasEnable = vk::False;
@@ -653,7 +655,7 @@ private:
     );
 
     // setting up color attachments
-    vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
+    vk::ClearValue clearColor = vk::ClearColorValue(0.1f, 0.0f, 0.0f, 1.0f);
     vk::RenderingAttachmentInfo attachmentInfo{};
     attachmentInfo.imageView = swapChainImageViews[imageIndex];
     attachmentInfo.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
@@ -697,13 +699,12 @@ private:
                                 // identical/similar objects with one draw call)
     // offset of vertexBuffer
     // defines the lowest value of SV_vertexID
-    int firstIndex = 0;
+    // int firstIndex = 0;
     // offset for instanced rendering, defines lowest value of SV_InstanceID
-    int firstInstance = 0;
-    int vertexOffset = 0;
-    commandBuffer.drawIndexed(static_cast<uint32_t>(indices.size()),
-                              instancedRendering, firstIndex, vertexOffset,
-                              firstInstance);
+    // int firstInstance = 0;
+    // int vertexOffset = 0;
+    commandBuffer.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0,
+                              0);
 
     commandBuffer.endRendering();
 
@@ -1034,7 +1035,8 @@ private:
     // populating the descriptor
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
       // this structure specifies the buffer and the region with the data
-      vk::DescriptorBufferInfo bufferInfo(uniformBuffers[i], 0, vk::WholeSize);
+      vk::DescriptorBufferInfo bufferInfo(uniformBuffers[i], 0,
+                                          sizeof(UniformBufferObject));
       vk::WriteDescriptorSet descriptorWrite(descriptorSets[i], 0, 0, 1,
                                              vk::DescriptorType::eUniformBuffer,
                                              {}, &bufferInfo);

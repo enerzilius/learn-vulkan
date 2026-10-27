@@ -14,7 +14,7 @@ UTILS_PATH= src/utils
 BUILD_PATH= build
 
 UTILS=utils
-TRIANGLE=helloTriangleApp
+TRIANGLE=example
 T_SHADER=hello_t
 
 PROGS=$(UTILS) $(TRIANGLE)
