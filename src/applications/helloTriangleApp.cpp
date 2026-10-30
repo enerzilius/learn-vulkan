@@ -1,7 +1,6 @@
 #include "vulkan/vulkan.hpp"
 #include <cassert>
 #include <cstddef>
-#include <print>
 #include <vulkan/vulkan_core.h>
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #include <vulkan/vulkan_raii.hpp>
@@ -10,9 +9,9 @@ import vulkan_hpp;
 #endif
 
 #define GLFW_INCLUDE_VULKAN
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <GLFW/glfw3.h>
 
+#include "../class/vertex.cpp"
 #include "../utils/utils.h"
 #include <algorithm>
 #include <array>
@@ -22,19 +21,21 @@ import vulkan_hpp;
 #include <limits>
 #include <stdexcept>
 #include <vector>
+
 // vector types + other math stuff
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <chrono>
 
-#include "../class/vertex.cpp"
-
 struct UniformBufferObject {
   glm::mat4 model;
   glm::mat4 view;
   glm::mat4 proj;
 };
+
+const std::vector<char const *> validationLayers = {
+    "VK_LAYER_KHRONOS_validation"};
 
 #ifdef NDEBUG
 constexpr bool enableValidationLayers = false;
@@ -49,10 +50,6 @@ constexpr uint32_t HEIGHT = 600;
 // 2 is used so the CPU doesn't get too ahead of the GPU and doesn't create too
 // much latency
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-
-const std::vector<char const *> validationLayers = {
-    "VK_LAYER_KHRONOS_validation"};
-
 const std::vector<Vertex> vertices = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
                                       {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
                                       {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
@@ -71,14 +68,13 @@ public:
   }
 
 private:
-  vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
   vk::raii::Context context;
   vk::raii::Instance instance = nullptr;
   vk::raii::SurfaceKHR surface = nullptr;
   vk::raii::PhysicalDevice physicalDevice = nullptr;
   vk::raii::Device device = nullptr;
   uint32_t queueIndex = ~0;
-  GLFWwindow *window = nullptr;
+  GLFWwindow *window;
   vk::raii::Queue graphicsQueue = nullptr;
   std::vector<const char *> requiredDeviceExtension = {
       vk::KHRSwapchainExtensionName};
@@ -111,10 +107,6 @@ private:
 
   bool framebufferResized = false;
 
-  vk::raii::DescriptorPool descriptorPool = nullptr;
-  vk::raii::DescriptorSetLayout descriptorSetLayout = nullptr;
-  std::vector<vk::raii::DescriptorSet> descriptorSets;
-
   void initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -127,7 +119,7 @@ private:
 
   void initVulkan() {
     createInstance();
-    setupDebugMessenger();
+    // setupDebugMessenger();
     createSurface();
     pickPhysicalDevice();
     createLogicalDevice();
@@ -139,8 +131,6 @@ private:
     createVertexBuffer();
     createIndexBuffer();
     createUniformsBuffer();
-    createDescriptorPool();
-    createDescriptorSets();
     createComandBuffers();
     createSyncObjects();
   }
@@ -159,23 +149,6 @@ private:
 
     glfwDestroyWindow(window);
     glfwTerminate();
-  }
-
-  void setupDebugMessenger() {
-    if (!enableValidationLayers)
-      return;
-
-    vk::DebugUtilsMessageSeverityFlagsEXT severityFlags(
-        vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-        vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
-    vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags(
-        vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
-        vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
-        vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation);
-    vk::DebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCreateInfoEXT(
-        {}, severityFlags, messageTypeFlags, &debugCallback);
-    debugMessenger =
-        instance.createDebugUtilsMessengerEXT(debugUtilsMessengerCreateInfoEXT);
   }
 
   void createInstance() {
@@ -240,6 +213,7 @@ private:
         glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
     std::vector extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+
     if (enableValidationLayers) {
       extensions.push_back(vk::EXTDebugUtilsExtensionName);
     }
@@ -250,20 +224,13 @@ private:
   bool isDeviceSuitable(vk::raii::PhysicalDevice const &physicalDevice) {
     // Check if the physicalDevice supports the Vulkan 1.3 API version
     bool supportsVulkan1_3 =
-        physicalDevice.getProperties().apiVersion >= VK_API_VERSION_1_3;
+        physicalDevice.getProperties().apiVersion >= vk::ApiVersion13;
 
-    // Check if any of the queue families support both graphics and presentation
-    // to our surface
+    // Check if any of the queue families support graphics operations
     auto queueFamilies = physicalDevice.getQueueFamilyProperties();
-    uint32_t qfpIndex = 0;
-    bool supportsGraphicsAndPresent = std::ranges::any_of(
-        queueFamilies, [&physicalDevice, &surface = this->surface,
-                        &qfpIndex](auto const &qfp) {
-          bool const suitable =
-              (qfp.queueFlags & vk::QueueFlagBits::eGraphics) &&
-              physicalDevice.getSurfaceSupportKHR(qfpIndex, *surface);
-          qfpIndex++;
-          return suitable;
+    bool supportsGraphics =
+        std::ranges::any_of(queueFamilies, [](auto const &qfp) {
+          return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics);
         });
 
     // Check if all required physicalDevice extensions are available
@@ -280,24 +247,20 @@ private:
               });
         });
 
-    // Check if the physicalDevice supports the required features
+    // Check if the physicalDevice supports the required features (dynamic
+    // rendering and extended dynamic state)
     auto features = physicalDevice.template getFeatures2<
-        vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features,
-        vk::PhysicalDeviceVulkan13Features,
+        vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features,
         vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
     bool supportsRequiredFeatures =
-        features.template get<vk::PhysicalDeviceVulkan11Features>()
-            .shaderDrawParameters &&
         features.template get<vk::PhysicalDeviceVulkan13Features>()
             .dynamicRendering &&
-        features.template get<vk::PhysicalDeviceVulkan13Features>()
-            .synchronization2 &&
         features
             .template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>()
             .extendedDynamicState;
 
     // Return true if the physicalDevice meets all the criteria
-    return supportsVulkan1_3 && supportsGraphicsAndPresent &&
+    return supportsVulkan1_3 && supportsGraphics &&
            supportsAllRequiredExtensions && supportsRequiredFeatures;
   }
 
@@ -509,20 +472,39 @@ private:
         static_cast<uint32_t>(attributeDescriptions.size());
     vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
+    vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo,
+                                                        fragShaderStageInfo};
+
+    std::vector<vk::DynamicState> dynamicStates = {vk::DynamicState::eViewport,
+                                                   vk::DynamicState::eScissor};
+    vk::PipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.dynamicStateCount =
+        static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
     vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
 
+    vk::Viewport viewport{0.0f,
+                          0.0f,
+                          static_cast<float>(swapChainExtent.width),
+                          static_cast<float>(swapChainExtent.height),
+                          0.0f,
+                          1.0f};
+
+    vk::Rect2D scissor{vk::Offset2D{0, 0}, swapChainExtent};
+
     vk::PipelineViewportStateCreateInfo viewportState{};
     viewportState.viewportCount = 1;
-    viewportState.scissorCount = 1;
+    viewportState.pViewports = &viewport, viewportState.scissorCount = 1;
+    viewportState.pScissors = &scissor;
 
     vk::PipelineRasterizationStateCreateInfo rasterizer{};
     rasterizer.depthClampEnable = vk::False;
     rasterizer.rasterizerDiscardEnable = vk::False;
     rasterizer.polygonMode = vk::PolygonMode::eFill;
-    rasterizer.cullMode = vk::CullModeFlagBits::eNone;
-    // ccw is inverting the y axis
-    rasterizer.frontFace = vk::FrontFace::eCounterClockwise;
+    rasterizer.cullMode = vk::CullModeFlagBits::eBack;
+    rasterizer.frontFace = vk::FrontFace::eClockwise;
     rasterizer.depthBiasEnable = vk::False;
     rasterizer.lineWidth = 1.0f;
 
@@ -535,35 +517,29 @@ private:
     colorBlendAttachment.colorWriteMask =
         vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
         vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
+
+    // vk::PipelineColorBlendAttachmentState colorBlendAttachment{
+    //.blendEnable         = vk::True,
+    //.srcColorBlendFactor = vk::BlendFactor::eSrcAlpha,
+    //.dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha,
+    //.colorBlendOp        = vk::BlendOp::eAdd,
+    //.srcAlphaBlendFactor = vk::BlendFactor::eOne,
+    //.dstAlphaBlendFactor = vk::BlendFactor::eZero,
+    //.alphaBlendOp        = vk::BlendOp::eAdd,
+    //.colorWriteMask      = vk::ColorComponentFlagBits::eR |
+    // vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB |
+    // vk::ColorComponentFlagBits::eA};
+
     vk::PipelineColorBlendStateCreateInfo colorBlending{};
     colorBlending.logicOpEnable = vk::False;
     colorBlending.logicOp = vk::LogicOp::eCopy;
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
 
-    std::vector<vk::DynamicState> dynamicStates = {vk::DynamicState::eViewport,
-                                                   vk::DynamicState::eScissor};
-    vk::PipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.dynamicStateCount =
-        static_cast<uint32_t>(dynamicStates.size());
-    dynamicState.pDynamicStates = dynamicStates.data();
-
-    vk::Viewport viewport{0.0f,
-                          0.0f,
-                          static_cast<float>(swapChainExtent.width),
-                          static_cast<float>(swapChainExtent.height),
-                          0.0f,
-                          1.0f};
-
-    vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo,
-                                                        fragShaderStageInfo};
-
-    vk::Rect2D scissor{vk::Offset2D{0, 0}, swapChainExtent};
-
     vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &*descriptorSetLayout,
+    pipelineLayoutInfo.setLayoutCount = 0;
     pipelineLayoutInfo.pushConstantRangeCount = 0;
+
     pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
 
     vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo{};
@@ -616,22 +592,6 @@ private:
     commandPool = vk::raii::CommandPool(device, poolInfo);
   }
 
-  std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>
-  createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
-               vk::MemoryPropertyFlags properties) {
-    vk::BufferCreateInfo bufferInfo({}, size, usage,
-                                    vk::SharingMode::eExclusive);
-    vk::raii::Buffer buffer = vk::raii::Buffer(device, bufferInfo);
-    vk::MemoryRequirements memRequirements = buffer.getMemoryRequirements();
-    vk::MemoryAllocateInfo allocInfo(
-        memRequirements.size,
-        findMemoryType(memRequirements.memoryTypeBits, properties));
-    vk::raii::DeviceMemory bufferMemory =
-        vk::raii::DeviceMemory(device, allocInfo);
-    buffer.bindMemory(*bufferMemory, 0);
-    return {std::move(buffer), std::move(bufferMemory)};
-  }
-
   // creating the command buffers for each frame rendered in flight
   void createComandBuffers() {
     vk::CommandBufferAllocateInfo allocInfo(
@@ -642,7 +602,7 @@ private:
   void recordCommandBuffer(uint32_t imageIndex) {
     // starting dynamic rendering
     auto &commandBuffer = commandBuffers[frameIndex];
-    commandBuffers[frameIndex].begin({});
+    commandBuffer.begin({});
 
     // specifying attachments for rendering
     transitionImageLayout(
@@ -655,7 +615,7 @@ private:
     );
 
     // setting up color attachments
-    vk::ClearValue clearColor = vk::ClearColorValue(0.1f, 0.0f, 0.0f, 1.0f);
+    vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.05f, 1.0f);
     vk::RenderingAttachmentInfo attachmentInfo{};
     attachmentInfo.imageView = swapChainImageViews[imageIndex];
     attachmentInfo.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
@@ -676,35 +636,30 @@ private:
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                *graphicsPipeline);
 
-    // Negative height flips Y for Vulkan; see Uniform buffers.
     commandBuffer.setViewport(
         0,
         vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width),
-                     -static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
-
+                     static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
     commandBuffer.setScissor(0,
                              vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
 
     commandBuffer.bindVertexBuffers(0, *vertexBuffer, {0});
 
-    commandBuffer.bindIndexBuffer(
-        *indexBuffer, 0,
-        vk::IndexTypeValue<decltype(indices)::value_type>::value);
+    commandBuffer.draw(static_cast<uint32_t>(vertices.size()), 1, 0, 0);
 
-    commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-                                     pipelineLayout, 0,
-                                     *descriptorSets[frameIndex], nullptr);
+    commandBuffer.bindVertexBuffers(0, *vertexBuffer, {0});
+    commandBuffer.bindIndexBuffer(*indexBuffer, 0, vk::IndexType::eUint16);
 
-    int instancedRendering = 1; // not using instanced rendering (draw
-                                // identical/similar objects with one draw call)
+    int instancedRendering = 1; // not using instanced rendering
     // offset of vertexBuffer
     // defines the lowest value of SV_vertexID
-    // int firstIndex = 0;
+    int firstVertex = 0;
     // offset for instanced rendering, defines lowest value of SV_InstanceID
-    // int firstInstance = 0;
-    // int vertexOffset = 0;
-    commandBuffer.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0,
-                              0);
+    int firstInstance = 0;
+    int vertexOffset = 0;
+    commandBuffer.drawIndexed(static_cast<uint32_t>(indices.size()),
+                              instancedRendering, firstVertex, vertexOffset,
+                              firstInstance);
 
     commandBuffer.endRendering();
 
@@ -910,6 +865,42 @@ private:
     throw std::runtime_error("failed to find suitable memory type!");
   }
 
+  // helper function
+  std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>
+  createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage,
+               vk::MemoryPropertyFlags properties) {
+    vk::BufferCreateInfo bufferInfo({}, size, usage,
+                                    vk::SharingMode::eExclusive);
+
+    vk::raii::Buffer buffer = vk::raii::Buffer(device, bufferInfo);
+
+    // this returns:
+    // size - size of required memory in bytes
+    // alignment - where the buffer begins allocation in memory
+    // memoryTypeBits - bit field of memory types that are suitable for the
+    // buffer
+    vk::MemoryRequirements memRequirements = buffer.getMemoryRequirements();
+
+    uint32_t memoryTypes =
+        findMemoryType(memRequirements.memoryTypeBits, properties);
+
+    vk::MemoryAllocateInfo memoryAllocateInfo(memRequirements.size,
+                                              memoryTypes);
+    vk::raii::DeviceMemory bufferMemory =
+        vk::raii::DeviceMemory(device, memoryAllocateInfo);
+
+    // if the alloc was successfull, the memory can be associated
+    // memoryOffset parameter (0) indicates where the data would start inside
+    // the buffer, but since this buffer is specific for vertex data, it doens't
+    // need an offset. If it is other than 0, it needs to be divisible by
+    // memRequirements.alignment
+    buffer.bindMemory(*bufferMemory, 0);
+
+    // std::move here turns it into a reference so it casn be moved instead of
+    // copied
+    return {std::move(buffer), std::move(bufferMemory)};
+  }
+
   void copyBuffer(vk::raii::Buffer &srcBuffer, vk::raii::Buffer &dstBuffer,
                   vk::DeviceSize size) {
     // since memory transfer operations are done using command buffers, we need
@@ -969,8 +960,6 @@ private:
     vk::DescriptorSetLayoutBinding uboLayoutBinding(
         0, vk::DescriptorType::eUniformBuffer, 1,
         vk::ShaderStageFlagBits::eVertex);
-    vk::DescriptorSetLayoutCreateInfo layoutInfo({}, 1, &uboLayoutBinding);
-    descriptorSetLayout = vk::raii::DescriptorSetLayout(device, layoutInfo);
   }
 
   void createUniformsBuffer() {
@@ -1007,54 +996,11 @@ private:
                                 static_cast<float>(swapChainExtent.width) /
                                     static_cast<float>(swapChainExtent.height),
                                 0.1f, 10.0f);
+    // inverting the y axis because glm was made for OpenGL, which has inverted
+    // y axis
+    ubo.proj[1][1] *= -1;
+
     memcpy(uniformBuffersMapped[frameIndex], &ubo, sizeof(ubo));
-  }
-
-  void createDescriptorPool() {
-    // describing what descriptor types will be used
-    vk::DescriptorPoolSize poolSize(vk::DescriptorType::eUniformBuffer,
-                                    MAX_FRAMES_IN_FLIGHT);
-
-    // one of the descriptors will be allocated each frame
-    vk::DescriptorPoolCreateInfo poolInfo(
-        vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-        MAX_FRAMES_IN_FLIGHT, 1, &poolSize);
-
-    descriptorPool = vk::raii::DescriptorPool(device, poolInfo);
-  }
-
-  void createDescriptorSets() {
-    // to allocate the set, we need to specify the pool, number of descriptor
-    // sets and the layout
-    std::vector<vk::DescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT,
-                                                 *descriptorSetLayout);
-    vk::DescriptorSetAllocateInfo allocInfo(
-        descriptorPool, static_cast<uint32_t>(layouts.size()), layouts.data());
-    descriptorSets = device.allocateDescriptorSets(allocInfo);
-
-    // populating the descriptor
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-      // this structure specifies the buffer and the region with the data
-      vk::DescriptorBufferInfo bufferInfo(uniformBuffers[i], 0,
-                                          sizeof(UniformBufferObject));
-      vk::WriteDescriptorSet descriptorWrite(descriptorSets[i], 0, 0, 1,
-                                             vk::DescriptorType::eUniformBuffer,
-                                             {}, &bufferInfo);
-      device.updateDescriptorSets(descriptorWrite, {});
-    }
-  }
-
-  static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(
-      vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
-      vk::DebugUtilsMessageTypeFlagsEXT type,
-      const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData, void *) {
-    if (severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eError ||
-        severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning) {
-      std::cerr << "validation layer: type " << to_string(type)
-                << " msg: " << pCallbackData->pMessage << std::endl;
-    }
-
-    return vk::False;
   }
 };
 
